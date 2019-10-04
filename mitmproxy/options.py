@@ -1,137 +1,184 @@
-from __future__ import absolute_import, print_function, division
+from typing import Optional, Sequence
+
 from mitmproxy import optmanager
-from typing import Tuple, Optional, Sequence  # noqa
+from mitmproxy.net import tls
 
-APP_HOST = "mitm.it"
-APP_PORT = 80
-CA_DIR = "~/.mitmproxy"
+
+CONF_DIR = "~/.mitmproxy"
 LISTEN_PORT = 8080
-
-# We manually need to specify this, otherwise OpenSSL may select a non-HTTP2 cipher by default.
-# https://mozilla.github.io/server-side-tls/ssl-config-generator/?server=apache-2.2.15&openssl=1.0.2&hsts=yes&profile=old
-DEFAULT_CLIENT_CIPHERS = "ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256:ECDHE-RSA-AES256-GCM-SHA384:" \
-    "ECDHE-ECDSA-AES256-GCM-SHA384:DHE-RSA-AES128-GCM-SHA256:DHE-DSS-AES128-GCM-SHA256:kEDH+AESGCM:" \
-    "ECDHE-RSA-AES128-SHA256:ECDHE-ECDSA-AES128-SHA256:ECDHE-RSA-AES128-SHA:ECDHE-ECDSA-AES128-SHA:" \
-    "ECDHE-RSA-AES256-SHA384:ECDHE-ECDSA-AES256-SHA384:ECDHE-RSA-AES256-SHA:ECDHE-ECDSA-AES256-SHA:" \
-    "DHE-RSA-AES128-SHA256:DHE-RSA-AES128-SHA:DHE-DSS-AES128-SHA256:DHE-RSA-AES256-SHA256:DHE-DSS-AES256-SHA:" \
-    "DHE-RSA-AES256-SHA:ECDHE-RSA-DES-CBC3-SHA:ECDHE-ECDSA-DES-CBC3-SHA:AES128-GCM-SHA256:AES256-GCM-SHA384:" \
-    "AES128-SHA256:AES256-SHA256:AES128-SHA:AES256-SHA:AES:DES-CBC3-SHA:" \
-    "HIGH:!aNULL:!eNULL:!EXPORT:!DES:!RC4:!MD5:!PSK:!aECDH:" \
-    "!EDH-DSS-DES-CBC3-SHA:!EDH-RSA-DES-CBC3-SHA:!KRB5-DES-CBC3-SHA"
+CONTENT_VIEW_LINES_CUTOFF = 512
+KEY_SIZE = 2048
 
 
 class Options(optmanager.OptManager):
-    def __init__(
-            self,
-            # TODO: rename to onboarding_app_*
-            app=True,  # type: bool
-            app_host=APP_HOST,  # type: str
-            app_port=APP_PORT,  # type: int
-            anticache=False,  # type: bool
-            anticomp=False,  # type: bool
-            client_replay=None,  # type: Optional[str]
-            kill=False,  # type: bool
-            no_server=False,  # type: bool
-            nopop=False,  # type: bool
-            refresh_server_playback=False,  # type: bool
-            rfile=None,  # type: Optional[str]
-            scripts=(),  # type: Sequence[str]
-            showhost=False,  # type: bool
-            replacements=(),  # type: Sequence[Tuple[str, str, str]]
-            rheaders=(),  # type: Sequence[str]
-            setheaders=(),  # type: Sequence[Tuple[str, str, str]]
-            server_replay=None,  # type: Optional[str]
-            stickycookie=None,  # type: Optional[str]
-            stickyauth=None,  # type: Optional[str]
-            stream_large_bodies=None,  # type: Optional[str]
-            verbosity=2,  # type: int
-            outfile=None,  # type: Tuple[str, str]
-            replay_ignore_content=False,  # type: bool
-            replay_ignore_params=(),  # type: Sequence[str]
-            replay_ignore_payload_params=(),  # type: Sequence[str]
-            replay_ignore_host=False,  # type: bool
 
-            # Proxy options
-            auth_nonanonymous=False,  # type: bool
-            auth_singleuser=None,  # type: Optional[str]
-            auth_htpasswd=None,  # type: Optional[str]
-            add_upstream_certs_to_client_chain=False,  # type: bool
-            body_size_limit=None,  # type: Optional[int]
-            cadir = CA_DIR,  # type: str
-            certs = (),  # type: Sequence[Tuple[str, str]]
-            ciphers_client = DEFAULT_CLIENT_CIPHERS,   # type: str
-            ciphers_server = None,   # type: Optional[str]
-            clientcerts = None,  # type: Optional[str]
-            http2 = True,  # type: bool
-            ignore_hosts = (),  # type: Sequence[str]
-            listen_host = "",  # type: str
-            listen_port = LISTEN_PORT,  # type: int
-            mode = "regular",  # type: str
-            no_upstream_cert = False,  # type: bool
-            rawtcp = False,  # type: bool
-            upstream_server = "",  # type: str
-            upstream_auth = "",  # type: str
-            ssl_version_client="secure",  # type: str
-            ssl_version_server="secure",  # type: str
-            ssl_insecure=False,  # type: bool
-            ssl_verify_upstream_trusted_cadir=None,  # type: str
-            ssl_verify_upstream_trusted_ca=None,  # type: str
-            tcp_hosts = (),  # type: Sequence[str]
-    ):
-        # We could replace all assignments with clever metaprogramming,
-        # but type hints are a much more valueable asset.
-
-        self.app = app
-        self.app_host = app_host
-        self.app_port = app_port
-        self.anticache = anticache
-        self.anticomp = anticomp
-        self.client_replay = client_replay
-        self.kill = kill
-        self.no_server = no_server
-        self.nopop = nopop
-        self.refresh_server_playback = refresh_server_playback
-        self.rfile = rfile
-        self.scripts = scripts
-        self.showhost = showhost
-        self.replacements = replacements
-        self.rheaders = rheaders
-        self.setheaders = setheaders
-        self.server_replay = server_replay
-        self.stickycookie = stickycookie
-        self.stickyauth = stickyauth
-        self.stream_large_bodies = stream_large_bodies
-        self.verbosity = verbosity
-        self.outfile = outfile
-        self.replay_ignore_content = replay_ignore_content
-        self.replay_ignore_params = replay_ignore_params
-        self.replay_ignore_payload_params = replay_ignore_payload_params
-        self.replay_ignore_host = replay_ignore_host
+    def __init__(self, **kwargs) -> None:
+        super().__init__()
+        self.add_option(
+            "server", bool, True,
+            "Start a proxy server. Enabled by default."
+        )
+        self.add_option(
+            "showhost", bool, False,
+            "Use the Host header to construct URLs for display."
+        )
 
         # Proxy options
-        self.auth_nonanonymous = auth_nonanonymous
-        self.auth_singleuser = auth_singleuser
-        self.auth_htpasswd = auth_htpasswd
-        self.add_upstream_certs_to_client_chain = add_upstream_certs_to_client_chain
-        self.body_size_limit = body_size_limit
-        self.cadir = cadir
-        self.certs = certs
-        self.ciphers_client = ciphers_client
-        self.ciphers_server = ciphers_server
-        self.clientcerts = clientcerts
-        self.http2 = http2
-        self.ignore_hosts = ignore_hosts
-        self.listen_host = listen_host
-        self.listen_port = listen_port
-        self.mode = mode
-        self.no_upstream_cert = no_upstream_cert
-        self.rawtcp = rawtcp
-        self.upstream_server = upstream_server
-        self.upstream_auth = upstream_auth
-        self.ssl_version_client = ssl_version_client
-        self.ssl_version_server = ssl_version_server
-        self.ssl_insecure = ssl_insecure
-        self.ssl_verify_upstream_trusted_cadir = ssl_verify_upstream_trusted_cadir
-        self.ssl_verify_upstream_trusted_ca = ssl_verify_upstream_trusted_ca
-        self.tcp_hosts = tcp_hosts
-        super(Options, self).__init__()
+        self.add_option(
+            "add_upstream_certs_to_client_chain", bool, False,
+            """
+            Add all certificates of the upstream server to the certificate chain
+            that will be served to the proxy client, as extras.
+            """
+        )
+        self.add_option(
+            "confdir", str, CONF_DIR,
+            "Location of the default mitmproxy configuration files."
+        )
+        self.add_option(
+            "certs", Sequence[str], [],
+            """
+            SSL certificates of the form "[domain=]path". The domain may include
+            a wildcard, and is equal to "*" if not specified. The file at path
+            is a certificate in PEM format. If a private key is included in the
+            PEM, it is used, else the default key in the conf dir is used. The
+            PEM file should contain the full certificate chain, with the leaf
+            certificate as the first entry.
+            """
+        )
+        self.add_option(
+            "ciphers_client", Optional[str], None,
+            "Set supported ciphers for client connections using OpenSSL syntax."
+        )
+        self.add_option(
+            "ciphers_server", Optional[str], None,
+            "Set supported ciphers for server connections using OpenSSL syntax."
+        )
+        self.add_option(
+            "client_certs", Optional[str], None,
+            "Client certificate file or directory."
+        )
+        self.add_option(
+            "ignore_hosts", Sequence[str], [],
+            """
+            Ignore host and forward all traffic without processing it. In
+            transparent mode, it is recommended to use an IP address (range),
+            not the hostname. In regular mode, only SSL traffic is ignored and
+            the hostname should be used. The supplied value is interpreted as a
+            regular expression and matched on the ip or the hostname.
+            """
+        )
+        self.add_option(
+            "allow_hosts", Sequence[str], [],
+            "Opposite of --ignore-hosts."
+        )
+        self.add_option(
+            "listen_host", str, "",
+            "Address to bind proxy to."
+        )
+        self.add_option(
+            "listen_port", int, LISTEN_PORT,
+            "Proxy service port."
+        )
+        self.add_option(
+            "upstream_bind_address", str, "",
+            "Address to bind upstream requests to."
+        )
+        self.add_option(
+            "mode", str, "regular",
+            """
+            Mode can be "regular", "transparent", "socks5", "reverse:SPEC",
+            or "upstream:SPEC". For reverse and upstream proxy modes, SPEC
+            is host specification in the form of "http[s]://host[:port]".
+            """
+        )
+        self.add_option(
+            "upstream_cert", bool, True,
+            "Connect to upstream server to look up certificate details."
+        )
+
+        self.add_option(
+            "http2", bool, True,
+            "Enable/disable HTTP/2 support. "
+            "HTTP/2 support is enabled by default.",
+        )
+        self.add_option(
+            "http2_priority", bool, False,
+            """
+            PRIORITY forwarding for HTTP/2 connections. Disabled by default to ensure compatibility
+            with misbehaving servers.
+            """
+        )
+        self.add_option(
+            "websocket", bool, True,
+            "Enable/disable WebSocket support. "
+            "WebSocket support is enabled by default.",
+        )
+        self.add_option(
+            "rawtcp", bool, False,
+            "Enable/disable experimental raw TCP support. TCP connections starting with non-ascii "
+            "bytes are treated as if they would match tcp_hosts. The heuristic is very rough, use "
+            "with caution. Disabled by default. "
+        )
+
+        self.add_option(
+            "spoof_source_address", bool, False,
+            """
+            Use the client's IP for server-side connections. Combine with
+            --upstream-bind-address to spoof a fixed source address.
+            """
+        )
+        self.add_option(
+            "ssl_version_client", str, "secure",
+            """
+            Set supported SSL/TLS versions for client connections. SSLv2, SSLv3
+            and 'all' are INSECURE. Defaults to secure, which is TLS1.0+.
+            """,
+            choices=list(tls.VERSION_CHOICES.keys()),
+        )
+        self.add_option(
+            "ssl_version_server", str, "secure",
+            """
+            Set supported SSL/TLS versions for server connections. SSLv2, SSLv3
+            and 'all' are INSECURE. Defaults to secure, which is TLS1.0+.
+            """,
+            choices=list(tls.VERSION_CHOICES.keys()),
+        )
+        self.add_option(
+            "ssl_insecure", bool, False,
+            "Do not verify upstream server SSL/TLS certificates."
+        )
+        self.add_option(
+            "ssl_verify_upstream_trusted_confdir", Optional[str], None,
+            """
+            Path to a directory of trusted CA certificates for upstream server
+            verification prepared using the c_rehash tool.
+            """
+        )
+        self.add_option(
+            "ssl_verify_upstream_trusted_ca", Optional[str], None,
+            "Path to a PEM formatted trusted CA certificate."
+        )
+        self.add_option(
+            "tcp_hosts", Sequence[str], [],
+            """
+            Generic TCP SSL proxy mode for all hosts that match the pattern.
+            Similar to --ignore, but SSL connections are intercepted. The
+            communication contents are printed to the log in verbose mode.
+            """
+        )
+        self.add_option(
+            "content_view_lines_cutoff", int, CONTENT_VIEW_LINES_CUTOFF,
+            """
+            Flow content view lines limit. Limit is enabled by default to
+            speedup flows browsing.
+            """
+        )
+        self.add_option(
+            "key_size", int, KEY_SIZE,
+            """
+            TLS key size for certificates and CA.
+            """
+        )
+
+        self.update(**kwargs)

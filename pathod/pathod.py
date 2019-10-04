@@ -1,20 +1,19 @@
-from __future__ import print_function
 import copy
 import logging
 import os
 import sys
 import threading
-
-from netlib import tcp
-from netlib import certutils
-from netlib import websockets
-from netlib import version
-
-from six.moves import urllib
-from netlib.exceptions import HttpException, HttpReadDisconnect, TcpTimeout, TcpDisconnect, \
-    TlsException
-
-from . import language, utils, log, protocols
+from mitmproxy.net import tcp, tls
+from mitmproxy import certs as mcerts
+from mitmproxy.net import websockets
+from mitmproxy import version
+import urllib
+from mitmproxy import exceptions
+from pathod import language
+from pathod import utils
+from pathod import log
+from pathod import protocols
+import typing  # noqa
 
 
 DEFAULT_CERT_DOMAIN = b"pathod.net"
@@ -22,6 +21,7 @@ CONFDIR = "~/.mitmproxy"
 CERTSTORE_BASENAME = "mitmproxy"
 CA_CERT_NAME = "mitmproxy-ca.pem"
 DEFAULT_CRAFT_ANCHOR = "/p/"
+KEY_SIZE = 2048
 
 logger = logging.getLogger('pathod')
 
@@ -30,7 +30,7 @@ class PathodError(Exception):
     pass
 
 
-class SSLOptions(object):
+class SSLOptions:
     def __init__(
         self,
         confdir=CONFDIR,
@@ -38,8 +38,8 @@ class SSLOptions(object):
         sans=(),
         not_after_connect=None,
         request_client_cert=False,
-        ssl_version=tcp.SSL_DEFAULT_METHOD,
-        ssl_options=tcp.SSL_DEFAULT_OPTIONS,
+        ssl_version=tls.DEFAULT_METHOD,
+        ssl_options=tls.DEFAULT_OPTIONS,
         ciphers=None,
         certs=None,
         alpn_select=b'h2',
@@ -53,9 +53,10 @@ class SSLOptions(object):
         self.ssl_options = ssl_options
         self.ciphers = ciphers
         self.alpn_select = alpn_select
-        self.certstore = certutils.CertStore.from_store(
+        self.certstore = mcerts.CertStore.from_store(
             os.path.expanduser(confdir),
-            CERTSTORE_BASENAME
+            CERTSTORE_BASENAME,
+            KEY_SIZE
         )
         for i in certs or []:
             self.certstore.add_cert_file(*i)
@@ -70,7 +71,7 @@ class SSLOptions(object):
 
 class PathodHandler(tcp.BaseHandler):
     wbufsize = 0
-    sni = None
+    sni: typing.Union[str, None, bool] = None
 
     def __init__(
         self,
@@ -129,9 +130,9 @@ class PathodHandler(tcp.BaseHandler):
         with logger.ctx() as lg:
             try:
                 req = self.protocol.read_request(self.rfile)
-            except HttpReadDisconnect:
+            except exceptions.HttpReadDisconnect:
                 return None, None
-            except HttpException as s:
+            except exceptions.HttpException as s:
                 s = str(s)
                 lg(s)
                 return None, dict(type="error", msg=s)
@@ -143,6 +144,7 @@ class PathodHandler(tcp.BaseHandler):
             path = req.path
             http_version = req.http_version
             headers = req.headers
+            first_line_format = req.first_line_format
 
             clientcert = None
             if self.clientcert:
@@ -164,21 +166,23 @@ class PathodHandler(tcp.BaseHandler):
                     headers=headers.fields,
                     http_version=http_version,
                     sni=self.sni,
-                    remote_address=self.address(),
+                    remote_address=self.address,
                     clientcert=clientcert,
+                    first_line_format=first_line_format
                 ),
                 cipher=None,
             )
-            if self.ssl_established:
+            if self.tls_established:
                 retlog["cipher"] = self.get_current_cipher()
 
             m = utils.MemBool()
-            websocket_key = websockets.WebsocketsProtocol.check_client_handshake(headers)
-            self.settings.websocket_key = websocket_key
+
+            valid_websocket_handshake = websockets.check_handshake(headers)
+            self.settings.websocket_key = websockets.get_client_key(headers)
 
             # If this is a websocket initiation, we respond with a proper
             # server response, unless over-ridden.
-            if websocket_key:
+            if valid_websocket_handshake:
                 anchor_gen = language.parse_pathod("ws")
             else:
                 anchor_gen = None
@@ -225,7 +229,7 @@ class PathodHandler(tcp.BaseHandler):
                 spec,
                 lg
             )
-            if nexthandler and websocket_key:
+            if nexthandler and valid_websocket_handshake:
                 self.protocol = protocols.websockets.WebsocketsProtocol(self)
                 return self.protocol.handle_websocket, retlog
             else:
@@ -242,7 +246,7 @@ class PathodHandler(tcp.BaseHandler):
         if self.server.ssl:
             try:
                 cert, key, _ = self.server.ssloptions.get_cert(None)
-                self.convert_to_ssl(
+                self.convert_to_tls(
                     cert,
                     key,
                     handle_sni=self.handle_sni,
@@ -252,7 +256,7 @@ class PathodHandler(tcp.BaseHandler):
                     options=self.server.ssloptions.ssl_options,
                     alpn_select=self.server.ssloptions.alpn_select,
                 )
-            except TlsException as v:
+            except exceptions.TlsException as v:
                 s = str(v)
                 self.server.add_log(
                     dict(
@@ -384,7 +388,7 @@ class Pathod(tcp.TCPServer):
         try:
             h.handle()
             h.finish()
-        except TcpDisconnect:  # pragma: no cover
+        except exceptions.TcpDisconnect:  # pragma: no cover
             log.write_raw(self.logfp, "Disconnect")
             self.add_log(
                 dict(
@@ -393,7 +397,7 @@ class Pathod(tcp.TCPServer):
                 )
             )
             return
-        except TcpTimeout:
+        except exceptions.TcpTimeout:
             log.write_raw(self.logfp, "Timeout")
             self.add_log(
                 dict(

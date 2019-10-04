@@ -1,27 +1,28 @@
-from __future__ import print_function
 import contextlib
 import sys
 import os
 import itertools
 import hashlib
-from six.moves import queue
+import queue
 import random
 import select
 import time
 
 import OpenSSL.crypto
-import six
 import logging
 
-from netlib.tutils import treq
-from netlib import strutils
-from netlib import tcp, certutils, websockets, socks
-from netlib import exceptions
-from netlib.http import http1
-from netlib import basethread
+from mitmproxy import certs
+from mitmproxy import exceptions
+from mitmproxy.net import tcp, tls
+from mitmproxy.net import websockets
+from mitmproxy.net import socks
+from mitmproxy.net import http as net_http
+from mitmproxy.coretypes import basethread
+from mitmproxy.utils import strutils
 
-from . import log, language
-from .protocols import http2
+from pathod import log
+from pathod import language
+from pathod.protocols import http2
 
 
 logging.getLogger("hpack").setLevel(logging.WARNING)
@@ -35,14 +36,14 @@ class PathocError(Exception):
     pass
 
 
-class SSLInfo(object):
+class SSLInfo:
 
     def __init__(self, certchain, cipher, alp):
         self.certchain, self.cipher, self.alp = certchain, cipher, alp
 
     def __str__(self):
         parts = [
-            "Application Layer Protocol: %s" % strutils.native(self.alp, "utf8"),
+            "Application Layer Protocol: %s" % strutils.always_str(self.alp, "utf8"),
             "Cipher: %s, %s bit, %s" % self.cipher,
             "SSL certificate chain:"
         ]
@@ -51,24 +52,24 @@ class SSLInfo(object):
             parts.append("\tSubject: ")
             for cn in i.get_subject().get_components():
                 parts.append("\t\t%s=%s" % (
-                    strutils.native(cn[0], "utf8"),
-                    strutils.native(cn[1], "utf8"))
+                    strutils.always_str(cn[0], "utf8"),
+                    strutils.always_str(cn[1], "utf8"))
                 )
             parts.append("\tIssuer: ")
             for cn in i.get_issuer().get_components():
                 parts.append("\t\t%s=%s" % (
-                    strutils.native(cn[0], "utf8"),
-                    strutils.native(cn[1], "utf8"))
+                    strutils.always_str(cn[0], "utf8"),
+                    strutils.always_str(cn[1], "utf8"))
                 )
             parts.extend(
                 [
                     "\tVersion: %s" % i.get_version(),
                     "\tValidity: %s - %s" % (
-                        strutils.native(i.get_notBefore(), "utf8"),
-                        strutils.native(i.get_notAfter(), "utf8")
+                        strutils.always_str(i.get_notBefore(), "utf8"),
+                        strutils.always_str(i.get_notAfter(), "utf8")
                     ),
                     "\tSerial: %s" % i.get_serial_number(),
-                    "\tAlgorithm: %s" % strutils.native(i.get_signature_algorithm(), "utf8")
+                    "\tAlgorithm: %s" % strutils.always_str(i.get_signature_algorithm(), "utf8")
                 ]
             )
             pk = i.get_pubkey()
@@ -78,9 +79,9 @@ class SSLInfo(object):
             }
             t = types.get(pk.type(), "Uknown")
             parts.append("\tPubkey: %s bit %s" % (pk.bits(), t))
-            s = certutils.SSLCert(i)
+            s = certs.Cert(i)
             if s.altnames:
-                parts.append("\tSANs: %s" % " ".join(strutils.native(n, "utf8") for n in s.altnames))
+                parts.append("\tSANs: %s" % " ".join(strutils.always_str(n, "utf8") for n in s.altnames))
         return "\n".join(parts)
 
 
@@ -123,7 +124,10 @@ class WebsocketFrameReader(basethread.BaseThread):
             while True:
                 if self.ws_read_limit == 0:
                     return
-                r, _, _ = select.select([self.rfile], [], [], 0.05)
+                try:
+                    r, _, _ = select.select([self.rfile], [], [], 0.05)
+                except OSError:  # pragma: no cover
+                    return  # this is not reliably triggered due to its nature, so we exclude it from coverage.
                 delta = time.time() - starttime
                 if not r and self.timeout and delta > self.timeout:
                     return
@@ -139,7 +143,7 @@ class WebsocketFrameReader(basethread.BaseThread):
                         except exceptions.TcpDisconnect:
                             return
                         self.frames_queue.put(frm)
-                        log("<< %s" % frm.header.human_readable())
+                        log("<< %s" % repr(frm.header))
                         if self.ws_read_limit is not None:
                             self.ws_read_limit -= 1
                         starttime = time.time()
@@ -154,8 +158,8 @@ class Pathoc(tcp.TCPClient):
             # SSL
             ssl=None,
             sni=None,
-            ssl_version=tcp.SSL_DEFAULT_METHOD,
-            ssl_options=tcp.SSL_DEFAULT_OPTIONS,
+            ssl_version=tls.DEFAULT_METHOD,
+            ssl_options=tls.DEFAULT_OPTIONS,
             clientcert=None,
             ciphers=None,
 
@@ -219,40 +223,40 @@ class Pathoc(tcp.TCPClient):
         self.ws_framereader = None
 
         if self.use_http2:
-            if not tcp.HAS_ALPN:  # pragma: no cover
-                log.write_raw(
-                    self.fp,
-                    "HTTP/2 requires ALPN support. "
-                    "Please use OpenSSL >= 1.0.2. "
-                    "Pathoc might not be working as expected without ALPN.",
-                    timestamp=False
-                )
             self.protocol = http2.HTTP2StateProtocol(self, dump_frames=self.http2_framedump)
         else:
-            self.protocol = http1
+            self.protocol = net_http.http1
 
         self.settings = language.Settings(
             is_client=True,
             staticdir=os.getcwd(),
             unconstrained_file_access=True,
-            request_host=self.address.host,
+            request_host=self.address[0],
             protocol=self.protocol,
         )
 
     def http_connect(self, connect_to):
-        self.wfile.write(
-            b'CONNECT %s:%d HTTP/1.1\r\n' % (connect_to[0].encode("idna"), connect_to[1]) +
-            b'\r\n'
+        req = net_http.Request(
+            first_line_format='authority',
+            method='CONNECT',
+            scheme=None,
+            host=connect_to[0].encode("idna"),
+            port=connect_to[1],
+            path=None,
+            http_version='HTTP/1.1',
+            headers=[(b"Host", connect_to[0].encode("idna"))],
+            content=b'',
         )
+        self.wfile.write(net_http.http1.assemble_request(req))
         self.wfile.flush()
         try:
-            resp = self.protocol.read_response(self.rfile, treq(method=b"CONNECT"))
+            resp = self.protocol.read_response(self.rfile, req)
             if resp.status_code != 200:
                 raise exceptions.HttpException("Unexpected status code: %s" % resp.status_code)
         except exceptions.HttpException as e:
-            six.reraise(PathocError, PathocError(
+            raise PathocError(
                 "Proxy CONNECT failed: %s" % repr(e)
-            ))
+            )
 
     def socks_connect(self, connect_to):
         try:
@@ -275,7 +279,7 @@ class Pathoc(tcp.TCPClient):
                 socks.VERSION.SOCKS5,
                 socks.CMD.CONNECT,
                 socks.ATYP.DOMAINNAME,
-                tcp.Address.wrap(connect_to)
+                connect_to,
             )
             connect_request.to_file(self.wfile)
             self.wfile.flush()
@@ -309,7 +313,7 @@ class Pathoc(tcp.TCPClient):
                     if self.use_http2:
                         alpn_protos.append(b'h2')
 
-                    self.convert_to_ssl(
+                    self.convert_to_tls(
                         sni=self.sni,
                         cert=self.clientcert,
                         method=self.ssl_version,
@@ -348,7 +352,7 @@ class Pathoc(tcp.TCPClient):
 
             timeout: If specified None may be yielded instead if timeout is
             reached. If timeout is None, wait forever. If timeout is 0, return
-            immedately if nothing is on the queue.
+            immediately if nothing is on the queue.
 
             finish: If true, consume messages until the reader shuts down.
             Otherwise, return None on timeout.
@@ -430,7 +434,20 @@ class Pathoc(tcp.TCPClient):
                 req = language.serve(r, self.wfile, self.settings)
                 self.wfile.flush()
 
-                resp = self.protocol.read_response(self.rfile, treq(method=req["method"].encode()))
+                # build a dummy request to read the response
+                # ideally this would be returned directly from language.serve
+                dummy_req = net_http.Request(
+                    first_line_format="relative",
+                    method=req["method"],
+                    scheme=b"http",
+                    host=b"localhost",
+                    port=80,
+                    path=b"/",
+                    http_version=b"HTTP/1.1",
+                    content=b'',
+                )
+
+                resp = self.protocol.read_response(self.rfile, dummy_req)
                 resp.sslinfo = self.sslinfo
             except exceptions.HttpException as v:
                 lg("Invalid server response: %s" % v)
@@ -454,14 +471,14 @@ class Pathoc(tcp.TCPClient):
         """
             Performs a single request.
 
-            r: A language.message.Messsage object, or a string representing
+            r: A language.message.Message object, or a string representing
             one.
 
             Returns Response if we have a non-ignored response.
 
             May raise a exceptions.NetlibException
         """
-        if isinstance(r, six.string_types):
+        if isinstance(r, str):
             r = next(language.parse_pathoc(r, self.use_http2))
 
         if isinstance(r, language.http.Request):
@@ -478,21 +495,31 @@ class Pathoc(tcp.TCPClient):
 
 
 def main(args):  # pragma: no cover
-    memo = set([])
-    trycount = 0
+    memo = set()
     p = None
+
+    if args.repeat == 1:
+        requests = args.requests
+    else:
+        # If we are replaying more than once, we must convert the request generators to lists
+        # or they will be exhausted after the first run.
+        # This is bad for the edge-case where get:/:x10000000 (see 0da3e51) is combined with -n 2,
+        # but does not matter otherwise.
+        requests = [list(x) for x in args.requests]
+
     try:
-        cnt = 0
+        requests_done = 0
         while True:
-            if cnt == args.repeat and args.repeat != 0:
+            if requests_done == args.repeat:
                 break
-            if args.wait and cnt != 0:
+            if args.wait and requests_done > 0:
                 time.sleep(args.wait)
 
-            cnt += 1
-            playlist = itertools.chain(*args.requests)
+            requests_done += 1
             if args.random:
-                playlist = random.choice(args.requests)
+                playlist = random.choice(requests)
+            else:
+                playlist = itertools.chain.from_iterable(requests)
             p = Pathoc(
                 (args.host, args.port),
                 ssl=args.ssl,
@@ -536,11 +563,11 @@ def main(args):  # pragma: no cover
                             if ret and args.oneshot:
                                 return
                             # We consume the queue when we can, so it doesn't build up.
-                            for i_ in p.wait(timeout=0, finish=False):
+                            for _ in p.wait(timeout=0, finish=False):
                                 pass
                         except exceptions.NetlibException:
                             break
-                    for i_ in p.wait(timeout=0.01, finish=True):
+                    for _ in p.wait(timeout=0.01, finish=True):
                         pass
             except exceptions.TcpException as v:
                 print(str(v), file=sys.stderr)

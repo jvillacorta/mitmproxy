@@ -1,8 +1,11 @@
 import random
 import string
-import netlib.websockets
-from netlib import strutils
+import typing  # noqa
+
 import pyparsing as pp
+
+import mitmproxy.net.websockets
+from mitmproxy.utils import strutils
 from . import base, generators, actions, message
 
 NESTED_LEADER = b"pathod!"
@@ -13,13 +16,13 @@ class WF(base.CaselessLiteral):
 
 
 class OpCode(base.IntField):
-    names = {
-        "continue": netlib.websockets.OPCODE.CONTINUE,
-        "text": netlib.websockets.OPCODE.TEXT,
-        "binary": netlib.websockets.OPCODE.BINARY,
-        "close": netlib.websockets.OPCODE.CLOSE,
-        "ping": netlib.websockets.OPCODE.PING,
-        "pong": netlib.websockets.OPCODE.PONG,
+    names: typing.Dict[str, int] = {
+        "continue": mitmproxy.net.websockets.OPCODE.CONTINUE,
+        "text": mitmproxy.net.websockets.OPCODE.TEXT,
+        "binary": mitmproxy.net.websockets.OPCODE.BINARY,
+        "close": mitmproxy.net.websockets.OPCODE.CLOSE,
+        "ping": mitmproxy.net.websockets.OPCODE.PING,
+        "pong": mitmproxy.net.websockets.OPCODE.PONG,
     }
     max = 15
     preamble = "c"
@@ -73,7 +76,7 @@ class Times(base.Integer):
     preamble = "x"
 
 
-COMPONENTS = (
+COMPONENTS = [
     OpCode,
     Length,
     # Bit flags
@@ -88,14 +91,13 @@ COMPONENTS = (
     KeyNone,
     Key,
     Times,
-
     Body,
     RawBody,
-)
+]
 
 
 class WebsocketFrame(message.Message):
-    components = COMPONENTS
+    components: typing.List[typing.Type[base._Component]] = COMPONENTS
     logattrs = ["body"]
     # Used for nested frames
     unique_name = "body"
@@ -215,11 +217,11 @@ class WebsocketFrame(message.Message):
             v = getattr(self, i, None)
             if v is not None:
                 frameparts[i] = v.value
-        frame = netlib.websockets.FrameHeader(**frameparts)
+        frame = mitmproxy.net.websockets.FrameHeader(**frameparts)
         vals = [bytes(frame)]
         if bodygen:
             if frame.masking_key and not self.rawbody:
-                masker = netlib.websockets.Masker(frame.masking_key)
+                masker = mitmproxy.net.websockets.Masker(frame.masking_key)
                 vals.append(
                     generators.TransformGenerator(
                         bodygen,
@@ -234,12 +236,10 @@ class WebsocketFrame(message.Message):
         return ":".join([i.spec() for i in self.tokens])
 
 
-class NestedFrame(base.NestedMessage):
+class NestedFrame(message.NestedMessage):
     preamble = "f"
     nest_type = WebsocketFrame
 
 
 class WebsocketClientFrame(WebsocketFrame):
-    components = COMPONENTS + (
-        NestedFrame,
-    )
+    components = COMPONENTS + [NestedFrame]

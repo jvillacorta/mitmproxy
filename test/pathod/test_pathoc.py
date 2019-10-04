@@ -1,17 +1,16 @@
-from six.moves import cStringIO as StringIO
-from six import BytesIO
-from mock import Mock
+import io
+from unittest.mock import Mock
+import pytest
 
-from netlib import http
-from netlib import tcp
-from netlib.exceptions import NetlibException
-from netlib.http import http1
-from netlib.tutils import raises
+from mitmproxy.net import http
+from mitmproxy.net.http import http1
+from mitmproxy import exceptions
 
 from pathod import pathoc, language
 from pathod.protocols.http2 import HTTP2StateProtocol
 
-from . import tutils
+from mitmproxy.test import tutils
+from . import tservers
 
 
 def test_response():
@@ -19,9 +18,9 @@ def test_response():
     assert repr(r)
 
 
-class PathocTestDaemon(tutils.DaemonTests):
+class PathocTestDaemon(tservers.DaemonTests):
     def tval(self, requests, timeout=None, showssl=False, **kwargs):
-        s = StringIO()
+        s = io.StringIO()
         c = pathoc.Pathoc(
             ("127.0.0.1", self.d.port),
             ssl=self.ssl,
@@ -37,7 +36,7 @@ class PathocTestDaemon(tutils.DaemonTests):
                     r = r.freeze(language.Settings())
                 try:
                     c.request(r)
-                except NetlibException:
+                except exceptions.NetlibException:
                     pass
         self.d.wait_for_silence()
         return s.getvalue()
@@ -62,23 +61,24 @@ class TestDaemonSSL(PathocTestDaemon):
     def test_showssl(self):
         assert "certificate chain" in self.tval(["get:/p/200"], showssl=True)
 
-    def test_clientcert(self):
+    def test_clientcert(self, tdata):
         self.tval(
             ["get:/p/200"],
-            clientcert=tutils.test_data.path("data/clientcert/client.pem"),
+            clientcert=tdata.path("pathod/data/clientcert/client.pem"),
         )
         log = self.d.log()
         assert log[0]["request"]["clientcert"]["keyinfo"]
 
     def test_http2_without_ssl(self):
-        fp = StringIO()
+        fp = io.StringIO()
         c = pathoc.Pathoc(
             ("127.0.0.1", self.d.port),
             use_http2=True,
             ssl=False,
             fp=fp
         )
-        tutils.raises(NotImplementedError, c.connect)
+        with pytest.raises(NotImplementedError):
+            c.connect()
 
 
 class TestDaemon(PathocTestDaemon):
@@ -171,15 +171,15 @@ class TestDaemon(PathocTestDaemon):
     def test_connect_fail(self):
         to = ("foobar", 80)
         c = pathoc.Pathoc(("127.0.0.1", self.d.port), fp=None)
-        c.rfile, c.wfile = BytesIO(), BytesIO()
-        with raises("connect failed"):
+        c.rfile, c.wfile = io.BytesIO(), io.BytesIO()
+        with pytest.raises(Exception, match="CONNECT failed"):
             c.http_connect(to)
-        c.rfile = BytesIO(
+        c.rfile = io.BytesIO(
             b"HTTP/1.1 500 OK\r\n"
         )
-        with raises("connect failed"):
+        with pytest.raises(Exception, match="CONNECT failed"):
             c.http_connect(to)
-        c.rfile = BytesIO(
+        c.rfile = io.BytesIO(
             b"HTTP/1.1 200 OK\r\n"
         )
         c.http_connect(to)
@@ -187,19 +187,22 @@ class TestDaemon(PathocTestDaemon):
     def test_socks_connect(self):
         to = ("foobar", 80)
         c = pathoc.Pathoc(("127.0.0.1", self.d.port), fp=None)
-        c.rfile, c.wfile = tutils.treader(b""), BytesIO()
-        tutils.raises(pathoc.PathocError, c.socks_connect, to)
+        c.rfile, c.wfile = tutils.treader(b""), io.BytesIO()
+        with pytest.raises(pathoc.PathocError):
+            c.socks_connect(to)
 
         c.rfile = tutils.treader(
             b"\x05\xEE"
         )
-        tutils.raises("SOCKS without authentication", c.socks_connect, ("example.com", 0xDEAD))
+        with pytest.raises(Exception, match="SOCKS without authentication"):
+            c.socks_connect(("example.com", 0xDEAD))
 
         c.rfile = tutils.treader(
             b"\x05\x00" +
             b"\x05\xEE\x00\x03\x0bexample.com\xDE\xAD"
         )
-        tutils.raises("SOCKS server error", c.socks_connect, ("example.com", 0xDEAD))
+        with pytest.raises(Exception, match="SOCKS server error"):
+            c.socks_connect(("example.com", 0xDEAD))
 
         c.rfile = tutils.treader(
             b"\x05\x00" +
@@ -212,45 +215,43 @@ class TestDaemonHTTP2(PathocTestDaemon):
     ssl = True
     explain = False
 
-    if tcp.HAS_ALPN:
+    def test_http2(self):
+        c = pathoc.Pathoc(
+            ("127.0.0.1", self.d.port),
+            fp=None,
+            ssl=True,
+            use_http2=True,
+        )
+        assert isinstance(c.protocol, HTTP2StateProtocol)
 
-        def test_http2(self):
-            c = pathoc.Pathoc(
-                ("127.0.0.1", self.d.port),
-                fp=None,
-                ssl=True,
-                use_http2=True,
-            )
-            assert isinstance(c.protocol, HTTP2StateProtocol)
+        c = pathoc.Pathoc(
+            ("127.0.0.1", self.d.port),
+        )
+        assert c.protocol == http1
 
-            c = pathoc.Pathoc(
-                ("127.0.0.1", self.d.port),
-            )
-            assert c.protocol == http1
+    def test_http2_alpn(self):
+        c = pathoc.Pathoc(
+            ("127.0.0.1", self.d.port),
+            fp=None,
+            ssl=True,
+            use_http2=True,
+            http2_skip_connection_preface=True,
+        )
 
-        def test_http2_alpn(self):
-            c = pathoc.Pathoc(
-                ("127.0.0.1", self.d.port),
-                fp=None,
-                ssl=True,
-                use_http2=True,
-                http2_skip_connection_preface=True,
-            )
+        tmp_convert_to_tls = c.convert_to_tls
+        c.convert_to_tls = Mock()
+        c.convert_to_tls.side_effect = tmp_convert_to_tls
+        with c.connect():
+            _, kwargs = c.convert_to_tls.call_args
+            assert set(kwargs['alpn_protos']) == set([b'http/1.1', b'h2'])
 
-            tmp_convert_to_ssl = c.convert_to_ssl
-            c.convert_to_ssl = Mock()
-            c.convert_to_ssl.side_effect = tmp_convert_to_ssl
-            with c.connect():
-                _, kwargs = c.convert_to_ssl.call_args
-                assert set(kwargs['alpn_protos']) == set([b'http/1.1', b'h2'])
-
-        def test_request(self):
-            c = pathoc.Pathoc(
-                ("127.0.0.1", self.d.port),
-                fp=None,
-                ssl=True,
-                use_http2=True,
-            )
-            with c.connect():
-                resp = c.request("get:/p/200")
-            assert resp.status_code == 200
+    def test_request(self):
+        c = pathoc.Pathoc(
+            ("127.0.0.1", self.d.port),
+            fp=None,
+            ssl=True,
+            use_http2=True,
+        )
+        with c.connect():
+            resp = c.request("get:/p/200")
+        assert resp.status_code == 200

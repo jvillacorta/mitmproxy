@@ -1,25 +1,25 @@
-import React, { Component, PropTypes } from 'react'
+import React, { Component } from 'react'
+import PropTypes from 'prop-types'
 import { connect } from 'react-redux'
-import * as ContentViews from './ContentView/ContentViews'
+import { Edit, ViewServer, ViewImage } from './ContentView/ContentViews'
 import * as MetaViews from './ContentView/MetaViews'
-import ViewSelector from './ContentView/ViewSelector'
-import UploadContentButton from './ContentView/UploadContentButton'
-import DownloadContentButton from './ContentView/DownloadContentButton'
+import ShowFullContentButton from './ContentView/ShowFullContentButton'
 
-import { setContentView, displayLarge, updateEdit } from '../ducks/ui/flow'
+
+import { displayLarge, updateEdit } from '../ducks/ui/flow'
 
 ContentView.propTypes = {
     // It may seem a bit weird at the first glance:
     // Every view takes the flow and the message as props, e.g.
     // <Auto flow={flow} message={flow.request}/>
-    flow: React.PropTypes.object.isRequired,
-    message: React.PropTypes.object.isRequired,
+    flow: PropTypes.object.isRequired,
+    message: PropTypes.object.isRequired,
 }
 
-ContentView.isContentTooLarge = msg => msg.contentLength > 1024 * 1024 * (ContentViews.ViewImage.matches(msg) ? 10 : 0.2)
+ContentView.isContentTooLarge = msg => msg.contentLength > 1024 * 1024 * (ViewImage.matches(msg) ? 10 : 0.2)
 
 function ContentView(props) {
-    const { flow, message, contentView, isDisplayLarge, displayLarge, uploadContent, onContentChange, readonly } = props
+    const { flow, message, contentView, isDisplayLarge, displayLarge, onContentChange, readonly } = props
 
     if (message.contentLength === 0 && readonly) {
         return <MetaViews.ContentEmpty {...props}/>
@@ -33,18 +33,16 @@ function ContentView(props) {
         return <MetaViews.ContentTooLarge {...props} onClick={displayLarge}/>
     }
 
-    const View = ContentViews[contentView]
+    let view;
+    if(contentView === "Edit") {
+        view = <Edit flow={flow} message={message} onChange={onContentChange}/>
+    } else {
+        view = <ViewServer flow={flow} message={message} contentView={contentView}/>
+    }
     return (
-        <div>
-            <View flow={flow} message={message} readonly={readonly} onChange={onContentChange}/>
-
-            <div className="view-options text-center">
-                <ViewSelector message={message}/>
-                &nbsp;
-                <DownloadContentButton flow={flow} message={message}/>
-                &nbsp;
-                <UploadContentButton uploadContent={uploadContent}/>
-            </div>
+        <div className="contentview">
+            {view}
+            <ShowFullContentButton/>
         </div>
     )
 }

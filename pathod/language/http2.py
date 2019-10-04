@@ -1,7 +1,7 @@
 import pyparsing as pp
 
-from netlib import http
-from netlib.http import user_agents, Headers
+from mitmproxy.net import http
+from mitmproxy.net.http import user_agents, Headers
 from . import base, message
 
 """
@@ -40,8 +40,10 @@ def get_header(val, headers):
     return None
 
 
-class _HeaderMixin(object):
-    unique_name = None
+class _HeaderMixin:
+    @property
+    def unique_name(self):
+        return None
 
     def values(self, settings):
         return (
@@ -189,7 +191,7 @@ class Response(_HTTP2Message):
 
             resp = http.Response(
                 b'HTTP/2.0',
-                self.status_code.string(),
+                int(self.status_code.string()),
                 b'',
                 headers,
                 body,
@@ -203,7 +205,7 @@ class Response(_HTTP2Message):
         return ":".join([i.spec() for i in self.tokens])
 
 
-class NestedResponse(base.NestedMessage):
+class NestedResponse(message.NestedMessage):
     preamble = "s"
     nest_type = Response
 

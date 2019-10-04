@@ -37,17 +37,17 @@ export default class FilterDocs extends Component {
             <table className="table table-condensed">
                 <tbody>
                     {doc.commands.map(cmd => (
-                        <tr key={cmd[1]}>
+                        <tr key={cmd[1]} onClick={e => this.props.selectHandler(cmd[0].split(" ")[0] + " ")}>
                             <td>{cmd[0].replace(' ', '\u00a0')}</td>
                             <td>{cmd[1]}</td>
                         </tr>
                     ))}
                     <tr key="docs-link">
                         <td colSpan="2">
-                            <a href="http://docs.mitmproxy.org/en/stable/features/filters.html"
+                            <a href="https://mitmproxy.org/docs/latest/concepts-filters/"
                                 target="_blank">
                                 <i className="fa fa-external-link"></i>
-                            &nbsp mitmproxy docs</a>
+                            &nbsp; mitmproxy docs</a>
                         </td>
                     </tr>
                 </tbody>

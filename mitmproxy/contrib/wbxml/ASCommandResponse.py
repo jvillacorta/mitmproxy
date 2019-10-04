@@ -1,6 +1,6 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 '''
-@author: David Shaw, david.shaw.aw@gmail.com
+@author: David Shaw, shawd@vmware.com
 
 Inspired by EAS Inspector for Fiddler
 https://easinspectorforfiddler.codeplex.com
@@ -41,7 +41,7 @@ class ASCommandResponse:
 				raise ValueError("Empty WBXML body passed")
 		except Exception as e:
 			self.xmlString = None
-			raise ValueError("Error: {0}".format(e.message))
+			raise ValueError("Error: {0}".format(e))
 
 	def getWBXMLBytes(self):
 		return self.wbxmlBytes
@@ -63,8 +63,9 @@ if __name__ == "__main__":
 	listOfSamples = os.listdir(samplesDir)
 
 	for filename in listOfSamples:
-		byteWBXML = open(samplesDir + os.sep + filename, "rb").read()
-		
+		with open(samplesDir + os.sep + filename, "rb") as f:
+			byteWBXML = f.read()
+
 		logging.info("-"*100)
 		logging.info(filename)
 		logging.info("-"*100)

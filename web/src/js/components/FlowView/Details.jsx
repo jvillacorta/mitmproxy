@@ -26,7 +26,7 @@ export function ConnectionInfo({ conn }) {
             <tbody>
                 <tr key="address">
                     <td>Address:</td>
-                    <td>{conn.address.address.join(':')}</td>
+                    <td>{conn.address.join(':')}</td>
                 </tr>
                 {conn.sni && (
                     <tr key="sni">
@@ -114,7 +114,7 @@ export function Timing({ flow }) {
 
 export default function Details({ flow }) {
     return (
-        <section>
+        <section className="detail">
             <h4>Client Connection</h4>
             <ConnectionInfo conn={flow.client_conn}/>
 

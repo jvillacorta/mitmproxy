@@ -1,5 +1,8 @@
-import React, { PropTypes } from 'react'
-import ContentLoader from './ContentLoader'
+import React, { Component } from 'react'
+import PropTypes from 'prop-types'
+import { connect } from 'react-redux'
+import { setContentViewDescription, setContent } from '../../ducks/ui/flow'
+import withContentLoader from './ContentLoader'
 import { MessageUtils } from '../../flow/utils'
 import CodeEditor from './CodeEditor'
 
@@ -18,43 +21,79 @@ function ViewImage({ flow, message }) {
     )
 }
 
-
-ViewRaw.matches = () => true
-ViewRaw.propTypes = {
-    content: React.PropTypes.string.isRequired,
+Edit.propTypes = {
+    content: PropTypes.string.isRequired,
 }
-function ViewRaw({ content, readonly, onChange }) {
-    return readonly ? <pre>{content}</pre> : <CodeEditor content={content} onChange={onChange}/>
-}
-ViewRaw = ContentLoader(ViewRaw)
 
-
-const isJSON = /^application\/json$/i
-ViewJSON.matches = msg => isJSON.test(MessageUtils.getContentType(msg))
-ViewJSON.propTypes = {
-    content: React.PropTypes.string.isRequired,
+function Edit({ content, onChange }) {
+    return <CodeEditor content={content} onChange={onChange}/>
 }
-function ViewJSON({ content }) {
-    let json = content
-    try {
-        json = JSON.stringify(JSON.parse(content), null, 2);
-    } catch (e) {
-        // @noop
+Edit = withContentLoader(Edit)
+
+export class PureViewServer extends Component {
+    static propTypes  = {
+        showFullContent: PropTypes.bool.isRequired,
+        maxLines: PropTypes.number.isRequired,
+        setContentViewDescription : PropTypes.func.isRequired,
+        setContent: PropTypes.func.isRequired
     }
-    return <pre>{json}</pre>
-}
-ViewJSON = ContentLoader(ViewJSON)
 
+    componentWillMount(){
+        this.setContentView(this.props)
+    }
 
-ViewAuto.matches = () => false
-ViewAuto.findView = msg => [ViewImage, ViewJSON, ViewRaw].find(v => v.matches(msg)) || ViewRaw
-ViewAuto.propTypes = {
-    message: React.PropTypes.object.isRequired,
-    flow: React.PropTypes.object.isRequired,
-}
-function ViewAuto({ message, flow, readonly, onChange }) {
-    const View = ViewAuto.findView(message)
-    return <View message={message} flow={flow} readonly={readonly} onChange={onChange}/>
+    componentWillReceiveProps(nextProps){
+        if (nextProps.content != this.props.content) {
+            this.setContentView(nextProps)
+        }
+    }
+
+    setContentView(props){
+        try {
+            this.data = JSON.parse(props.content)
+        }catch(err) {
+            this.data = {lines: [], description: err.message}
+        }
+
+        props.setContentViewDescription(props.contentView != this.data.description ? this.data.description : '')
+        props.setContent(this.data.lines)
+    }
+
+    render() {
+        const {content, contentView, message, maxLines} = this.props
+        let lines = this.props.showFullContent ? this.data.lines : this.data.lines.slice(0, maxLines)
+        return (
+            <div>
+                {ViewImage.matches(message) && <ViewImage {...this.props} />}
+                <pre>
+                    {lines.map((line, i) =>
+                        <div key={`line${i}`}>
+                            {line.map((element, j) => {
+                                let [style, text] = element
+                                return (
+                                    <span key={`tuple${j}`} className={style}>
+                                        {text}
+                                    </span>
+                                )
+                            })}
+                        </div>
+                    )}
+                </pre>
+            </div>
+        )
+    }
+
 }
 
-export { ViewImage, ViewRaw, ViewAuto, ViewJSON }
+const ViewServer = connect(
+    state => ({
+        showFullContent: state.ui.flow.showFullContent,
+        maxLines: state.ui.flow.maxContentLines
+    }),
+    {
+        setContentViewDescription,
+        setContent
+    }
+)(withContentLoader(PureViewServer))
+
+export { Edit, ViewServer, ViewImage }

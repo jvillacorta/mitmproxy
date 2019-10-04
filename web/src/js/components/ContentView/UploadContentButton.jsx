@@ -1,4 +1,6 @@
-import { PropTypes } from 'react'
+import React from 'react'
+import PropTypes from 'prop-types'
+import FileChooser from '../common/FileChooser'
 
 UploadContentButton.propTypes = {
     uploadContent: PropTypes.func.isRequired,
@@ -6,23 +8,12 @@ UploadContentButton.propTypes = {
 
 export default function UploadContentButton({ uploadContent }) {
 
-    let fileInput;
-
     return (
-        <a className="btn btn-default btn-xs"
-           onClick={() => fileInput.click()}
-           title="Upload a file to replace the content.">
-            <i className="fa fa-upload"/>
-            <input
-                ref={ref => fileInput = ref}
-                className="hidden"
-                type="file"
-                onChange={e => {
-                    if (e.target.files.length > 0) uploadContent(e.target.files[0])
-                }}
-            />
-        </a>
-
+        <FileChooser
+            icon="fa-upload"
+            title="Upload a file to replace the content."
+            onOpenFile={uploadContent}
+            className="btn btn-default btn-xs"/>
     )
 }
 

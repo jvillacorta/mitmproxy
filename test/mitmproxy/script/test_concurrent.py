@@ -1,10 +1,12 @@
-from test.mitmproxy import tutils, mastertest
+import pytest
+
+from mitmproxy.test import tflow
+from mitmproxy.test import taddons
+
 from mitmproxy import controller
-from mitmproxy.builtins import script
-from mitmproxy import options
-from mitmproxy.flow import master
-from mitmproxy.flow import state
 import time
+
+from .. import tservers
 
 
 class Thing:
@@ -13,34 +15,45 @@ class Thing:
         self.live = True
 
 
-class TestConcurrent(mastertest.MasterTest):
-    @tutils.skip_appveyor
-    def test_concurrent(self):
-        s = state.State()
-        m = master.FlowMaster(options.Options(), None, s)
-        sc = script.Script(
-            tutils.test_data.path(
-                "data/addonscripts/concurrent_decorator.py"
+class TestConcurrent(tservers.MasterTest):
+    def test_concurrent(self, tdata):
+        with taddons.context() as tctx:
+            sc = tctx.script(
+                tdata.path(
+                    "mitmproxy/data/addonscripts/concurrent_decorator.py"
+                )
             )
-        )
-        m.addons.add(m.options, sc)
-        f1, f2 = tutils.tflow(), tutils.tflow()
-        self.invoke(m, "request", f1)
-        self.invoke(m, "request", f2)
-        start = time.time()
-        while time.time() - start < 5:
-            if f1.reply.acked and f2.reply.acked:
-                return
-        raise ValueError("Script never acked")
+            f1, f2 = tflow.tflow(), tflow.tflow()
+            tctx.cycle(sc, f1)
+            tctx.cycle(sc, f2)
+            start = time.time()
+            while time.time() - start < 5:
+                if f1.reply.state == f2.reply.state == "committed":
+                    return
+            raise ValueError("Script never acked")
 
-    def test_concurrent_err(self):
-        s = state.State()
-        m = mastertest.RecordingMaster(options.Options(), None, s)
-        sc = script.Script(
-            tutils.test_data.path(
-                "data/addonscripts/concurrent_decorator_err.py"
+    @pytest.mark.asyncio
+    async def test_concurrent_err(self, tdata):
+        with taddons.context() as tctx:
+            tctx.script(
+                tdata.path(
+                    "mitmproxy/data/addonscripts/concurrent_decorator_err.py"
+                )
             )
-        )
-        with m.handlecontext():
-            sc.start()
-        assert "decorator not supported" in m.event_log[0][1]
+            assert await tctx.master.await_log("decorator not supported")
+
+    def test_concurrent_class(self, tdata):
+        with taddons.context() as tctx:
+            sc = tctx.script(
+                tdata.path(
+                    "mitmproxy/data/addonscripts/concurrent_decorator_class.py"
+                )
+            )
+            f1, f2 = tflow.tflow(), tflow.tflow()
+            tctx.cycle(sc, f1)
+            tctx.cycle(sc, f2)
+            start = time.time()
+            while time.time() - start < 5:
+                if f1.reply.state == f2.reply.state == "committed":
+                    return
+            raise ValueError("Script never acked")

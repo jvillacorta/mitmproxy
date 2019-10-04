@@ -1,12 +1,11 @@
-from __future__ import print_function
 import sys
 import argparse
 import os
 import os.path
 
-from netlib import tcp
-from netlib import version
-from netlib.http import user_agents
+from mitmproxy.net import tls
+from mitmproxy import version
+from mitmproxy.net.http import user_agents
 from . import pathoc, language
 
 
@@ -50,7 +49,7 @@ def args_pathoc(argv, stdout=sys.stdout, stderr=sys.stderr):
     )
     parser.add_argument(
         "-n", dest='repeat', default=1, type=int, metavar="N",
-        help='Repeat N times. If 0 repeat for ever.'
+        help='Repeat N times. Pass -1 to repeat infinitely.'
     )
     parser.add_argument(
         "-w", dest='wait', default=0, type=float, metavar="N",
@@ -112,7 +111,7 @@ def args_pathoc(argv, stdout=sys.stdout, stderr=sys.stderr):
     )
     group.add_argument(
         "--ssl-version", dest="ssl_version", type=str, default="secure",
-        choices=tcp.sslversion_choices.keys(),
+        choices=tls.VERSION_CHOICES.keys(),
         help="Set supported SSL/TLS versions. "
              "SSLv2, SSLv3 and 'all' are INSECURE. Defaults to secure, which is TLS1.0+."
     )
@@ -163,7 +162,7 @@ def args_pathoc(argv, stdout=sys.stdout, stderr=sys.stderr):
 
     args = parser.parse_args(argv[1:])
 
-    args.ssl_version, args.ssl_options = tcp.sslversion_choices[args.ssl_version]
+    args.ssl_version, args.ssl_options = tls.VERSION_CHOICES[args.ssl_version]
 
     args.port = None
     if ":" in args.host:
@@ -209,9 +208,10 @@ def args_pathoc(argv, stdout=sys.stdout, stderr=sys.stderr):
 
     reqs = []
     for r in args.requests:
+        r = os.path.expanduser(r)
         if os.path.isfile(r):
-            data = open(r).read()
-            r = data
+            with open(r) as f:
+                r = f.read()
         try:
             reqs.append(language.parse_pathoc(r, args.use_http2))
         except language.ParseException as v:

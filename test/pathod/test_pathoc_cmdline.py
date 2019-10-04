@@ -1,16 +1,15 @@
-from six.moves import cStringIO as StringIO
-import mock
+import io
+import pytest
+from unittest import mock
 
 from pathod import pathoc_cmdline as cmdline
 
-from . import tutils
-
 
 @mock.patch("argparse.ArgumentParser.error")
-def test_pathoc(perror):
+def test_pathoc(perror, tdata):
     assert cmdline.args_pathoc(["pathoc", "foo.com", "get:/"])
-    s = StringIO()
-    with tutils.raises(SystemExit):
+    s = io.StringIO()
+    with pytest.raises(SystemExit):
         cmdline.args_pathoc(["pathoc", "--show-uas"], s, s)
 
     a = cmdline.args_pathoc(["pathoc", "foo.com:8888", "get:/"])
@@ -52,10 +51,10 @@ def test_pathoc(perror):
         [
             "pathoc",
             "foo.com:8888",
-            tutils.test_data.path("data/request")
+            tdata.path("pathod/data/request")
         ]
     )
     assert len(list(a.requests)) == 1
 
-    with tutils.raises(SystemExit):
+    with pytest.raises(SystemExit):
         cmdline.args_pathoc(["pathoc", "foo.com", "invalid"], s, s)

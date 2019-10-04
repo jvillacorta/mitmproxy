@@ -1,17 +1,16 @@
 import operator
 import os
 import abc
+import functools
 import pyparsing as pp
-
-import six
-from six.moves import reduce
-from netlib import strutils
-from netlib import human
-
-from . import generators, exceptions
+from mitmproxy.utils import strutils
+from mitmproxy.utils import human
+import typing  # noqa
+from . import generators
+from . import exceptions
 
 
-class Settings(object):
+class Settings:
 
     def __init__(
         self,
@@ -61,7 +60,7 @@ v_naked_literal = pp.MatchFirst(
 )
 
 
-class Token(object):
+class Token:
 
     """
         A token in the specification language. Tokens are immutable. The token
@@ -85,7 +84,7 @@ class Token(object):
         return None
 
     @property
-    def unique_name(self):
+    def unique_name(self) -> typing.Optional[str]:
         """
             Controls uniqueness constraints for tokens. No two tokens with the
             same name will be allowed. If no uniquness should be applied, this
@@ -172,14 +171,14 @@ class TokValueGenerate(Token):
     def expr(cls):
         e = pp.Literal("@").suppress() + v_integer
 
-        u = reduce(
+        u = functools.reduce(
             operator.or_,
             [pp.Literal(i) for i in human.SIZE_UNITS.keys()]
         ).leaveWhitespace()
         e = e + pp.Optional(u, default=None)
 
         s = pp.Literal(",").suppress()
-        s += reduce(
+        s += functools.reduce(
             operator.or_,
             [pp.Literal(i) for i in generators.DATATYPES.keys()]
         )
@@ -217,7 +216,7 @@ class TokValueFile(Token):
             os.path.abspath(os.path.join(settings.staticdir, s))
         )
         uf = settings.unconstrained_file_access
-        if not uf and not s.startswith(settings.staticdir):
+        if not uf and not s.startswith(os.path.normpath(settings.staticdir)):
             raise exceptions.FileAccessDenied(
                 "File access outside of configured directory"
             )
@@ -335,14 +334,14 @@ class OptionsOrValue(_Component):
         Can be any of a specified set of options, or a value specifier.
     """
     preamble = ""
-    options = []
+    options: typing.List[str] = []
 
     def __init__(self, value):
         # If it's a string, we were passed one of the options, so we lower-case
         # it to be canonical. The user can specify a different case by using a
         # string value literal.
         self.option_used = False
-        if isinstance(value, six.string_types):
+        if isinstance(value, str):
             for i in self.options:
                 # Find the exact option value in a case-insensitive way
                 if i.lower() == value.lower():
@@ -377,7 +376,7 @@ class OptionsOrValue(_Component):
 
 
 class Integer(_Component):
-    bounds = (None, None)
+    bounds: typing.Tuple[typing.Optional[int], typing.Optional[int]] = (None, None)
     preamble = ""
 
     def __init__(self, value):
@@ -443,7 +442,7 @@ class FixedLengthValue(Value):
         A value component lead by an optional preamble.
     """
     preamble = ""
-    length = None
+    length: typing.Optional[int] = None
 
     def __init__(self, value):
         Value.__init__(self, value)
@@ -512,7 +511,7 @@ class IntField(_Component):
     """
         An integer field, where values can optionally specified by name.
     """
-    names = {}
+    names: typing.Dict[str, int] = {}
     max = 16
     preamble = ""
 
@@ -539,43 +538,3 @@ class IntField(_Component):
 
     def spec(self):
         return "%s%s" % (self.preamble, self.origvalue)
-
-
-class NestedMessage(Token):
-
-    """
-        A nested message, as an escaped string with a preamble.
-    """
-    preamble = ""
-    nest_type = None
-
-    def __init__(self, value):
-        Token.__init__(self)
-        self.value = value
-        try:
-            self.parsed = self.nest_type(
-                self.nest_type.expr().parseString(
-                    value.val.decode(),
-                    parseAll=True
-                )
-            )
-        except pp.ParseException as v:
-            raise exceptions.ParseException(v.msg, v.line, v.col)
-
-    @classmethod
-    def expr(cls):
-        e = pp.Literal(cls.preamble).suppress()
-        e = e + TokValueLiteral.expr()
-        return e.setParseAction(lambda x: cls(*x))
-
-    def values(self, settings):
-        return [
-            self.value.get_generator(settings),
-        ]
-
-    def spec(self):
-        return "%s%s" % (self.preamble, self.value.spec())
-
-    def freeze(self, settings):
-        f = self.parsed.freeze(settings).spec()
-        return self.__class__(TokValueLiteral(strutils.bytes_to_escaped_str(f.encode(), escape_single_quotes=True)))

@@ -1,12 +1,15 @@
-import React, { Component, PropTypes } from 'react'
+import React, { Component } from 'react'
+import PropTypes from 'prop-types'
 import { connect } from 'react-redux'
 
 
 import { RequestUtils, isValidHttpVersion, parseUrl } from '../../flow/utils.js'
 import { formatTimeStamp } from '../../utils.js'
 import ContentView from '../ContentView'
+import ContentViewOptions from '../ContentView/ContentViewOptions'
 import ValidateEditor from '../ValueEditor/ValidateEditor'
 import ValueEditor from '../ValueEditor/ValueEditor'
+import HideInStatic from '../common/HideInStatic'
 
 import Headers from './Headers'
 import { startEdit, updateEdit } from '../../ducks/ui/flow'
@@ -81,54 +84,42 @@ const Message = connect(
 export class Request extends Component {
     render() {
         const { flow, isEdit, updateFlow, uploadContent } = this.props
-
+        let noContent =  !isEdit && (flow.request.contentLength == 0 || flow.request.contentLength == null)
         return (
             <section className="request">
-                <ToggleEdit/>
-                <RequestLine
-                    flow={flow}
-                    readonly={!isEdit}
-                    updateFlow={updateFlow}/>
-                <Headers
-                    message={flow.request}
-                    readonly={!isEdit}
-                    onChange={headers => updateFlow({ request: { headers } })}
-                />
+                <article>
+                    <ToggleEdit/>
+                    <RequestLine
+                        flow={flow}
+                        readonly={!isEdit}
+                        updateFlow={updateFlow}/>
+                    <Headers
+                        message={flow.request}
+                        readonly={!isEdit}
+                        onChange={headers => updateFlow({ request: { headers } })}
+                    />
 
-                <hr/>
-                <ContentView
-                    readonly={!isEdit}
-                    flow={flow}
-                    onContentChange={content => updateFlow({ request: {content}})}
-                    uploadContent={content => uploadContent(flow, content, "request")}
-                    message={flow.request}/>
+                    <hr/>
+                    <ContentView
+                        readonly={!isEdit}
+                        flow={flow}
+                        onContentChange={content => updateFlow({ request: {content}})}
+                        message={flow.request}/>
+                </article>
+                <HideInStatic>
+                {!noContent &&
+                    <footer>
+                        <ContentViewOptions
+                            flow={flow}
+                            readonly={!isEdit}
+                            message={flow.request}
+                            uploadContent={content => uploadContent(flow, content, "request")}/>
+                    </footer>
+                }
+                </HideInStatic>
             </section>
         )
     }
-
-
-    edit(k) {
-        throw "unimplemented"
-        /*
-         switch (k) {
-         case 'm':
-         this.refs.requestLine.refs.method.focus()
-         break
-         case 'u':
-         this.refs.requestLine.refs.url.focus()
-         break
-         case 'v':
-         this.refs.requestLine.refs.httpVersion.focus()
-         break
-         case 'h':
-         this.refs.headers.edit()
-         break
-         default:
-         throw new Error(`Unimplemented: ${k}`)
-         }
-         */
-    }
-
 }
 
 Request = Message(Request)
@@ -137,51 +128,42 @@ Request = Message(Request)
 export class Response extends Component {
     render() {
         const { flow, isEdit, updateFlow, uploadContent } = this.props
+        let noContent =  !isEdit && (flow.response.contentLength == 0 || flow.response.contentLength == null)
 
         return (
             <section className="response">
-                <ToggleEdit/>
-                <ResponseLine
-                    flow={flow}
-                    readonly={!isEdit}
-                    updateFlow={updateFlow}/>
-                <Headers
-                    message={flow.response}
-                    readonly={!isEdit}
-                    onChange={headers => updateFlow({ response: { headers } })}
-                />
-                <hr/>
-                <ContentView
-                    readonly={!isEdit}
-                    flow={flow}
-                    onContentChange={content => updateFlow({ response: {content}})}
-                    uploadContent={content => uploadContent(flow, content, "response")}
-                    message={flow.response}
-                />
+                <article>
+                    <ToggleEdit/>
+                    <ResponseLine
+                        flow={flow}
+                        readonly={!isEdit}
+                        updateFlow={updateFlow}/>
+                    <Headers
+                        message={flow.response}
+                        readonly={!isEdit}
+                        onChange={headers => updateFlow({ response: { headers } })}
+                    />
+                    <hr/>
+                    <ContentView
+                        readonly={!isEdit}
+                        flow={flow}
+                        onContentChange={content => updateFlow({ response: {content}})}
+                        message={flow.response}
+                    />
+                </article>
+                <HideInStatic>
+                {!noContent &&
+                    <footer >
+                        <ContentViewOptions
+                            flow={flow}
+                            message={flow.response}
+                            uploadContent={content => uploadContent(flow, content, "response")}
+                            readonly={!isEdit}/>
+                    </footer>
+                }
+                </HideInStatic>
             </section>
         )
-    }
-
-    edit(k) {
-        throw "unimplemented"
-        /*
-         switch (k) {
-         case 'c':
-         this.refs.responseLine.refs.status_code.focus()
-         break
-         case 'm':
-         this.refs.responseLine.refs.msg.focus()
-         break
-         case 'v':
-         this.refs.responseLine.refs.httpVersion.focus()
-         break
-         case 'h':
-         this.refs.headers.edit()
-         break
-         default:
-         throw new Error(`'Unimplemented: ${k}`)
-         }
-         */
     }
 }
 
@@ -194,7 +176,7 @@ ErrorView.propTypes = {
 
 export function ErrorView({ flow }) {
     return (
-        <section>
+        <section className="error">
             <div className="alert alert-warning">
                 {flow.error.msg}
                 <div>

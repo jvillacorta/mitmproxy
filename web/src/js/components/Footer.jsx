@@ -1,47 +1,67 @@
 import React from 'react'
+import PropTypes from 'prop-types'
 import { connect } from 'react-redux'
 import { formatSize } from '../utils.js'
+import HideInStatic from '../components/common/HideInStatic'
 
 Footer.propTypes = {
-    settings: React.PropTypes.object.isRequired,
+    settings: PropTypes.object.isRequired,
 }
 
 function Footer({ settings }) {
+    let {mode, intercept, showhost, no_upstream_cert, rawtcp, http2, websocket, anticache, anticomp,
+            stickyauth, stickycookie, stream_large_bodies, listen_host, listen_port, version, server} = settings;
     return (
         <footer>
-            {settings.mode && settings.mode != "regular" && (
-                <span className="label label-success">{settings.mode} mode</span>
+            {mode && mode != "regular" && (
+                <span className="label label-success">{mode} mode</span>
             )}
-            {settings.intercept && (
-                <span className="label label-success">Intercept: {settings.intercept}</span>
+            {intercept && (
+                <span className="label label-success">Intercept: {intercept}</span>
             )}
-            {settings.showhost && (
+            {showhost && (
                 <span className="label label-success">showhost</span>
             )}
-            {settings.no_upstream_cert && (
+            {no_upstream_cert && (
                 <span className="label label-success">no-upstream-cert</span>
             )}
-            {settings.rawtcp && (
+            {rawtcp && (
                 <span className="label label-success">raw-tcp</span>
             )}
-            {!settings.http2 && (
+            {!http2 && (
                 <span className="label label-success">no-http2</span>
             )}
-            {settings.anticache && (
+            {!websocket && (
+                <span className="label label-success">no-websocket</span>
+            )}
+            {anticache && (
                 <span className="label label-success">anticache</span>
             )}
-            {settings.anticomp && (
+            {anticomp && (
                 <span className="label label-success">anticomp</span>
             )}
-            {settings.stickyauth && (
-                <span className="label label-success">stickyauth: {settings.stickyauth}</span>
+            {stickyauth && (
+                <span className="label label-success">stickyauth: {stickyauth}</span>
             )}
-            {settings.stickycookie && (
-                <span className="label label-success">stickycookie: {settings.stickycookie}</span>
+            {stickycookie && (
+                <span className="label label-success">stickycookie: {stickycookie}</span>
             )}
-            {settings.stream && (
-                <span className="label label-success">stream: {formatSize(settings.stream)}</span>
+            {stream_large_bodies && (
+                <span className="label label-success">stream: {formatSize(stream_large_bodies)}</span>
             )}
+            <div className="pull-right">
+                <HideInStatic>
+                {
+                    server && (
+                    <span className="label label-primary" title="HTTP Proxy Server Address">
+                        {listen_host||"*"}:{listen_port}
+                    </span>)
+                }
+                </HideInStatic>
+            <span className="label label-info" title="Mitmproxy Version">
+            v{version}
+            </span>
+            </div>
         </footer>
     )
 }

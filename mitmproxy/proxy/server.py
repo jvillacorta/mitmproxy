@@ -1,25 +1,26 @@
-from __future__ import absolute_import, print_function, division
-
-import socket
 import sys
 import traceback
 
-import six
-
-import netlib.exceptions
 from mitmproxy import exceptions
-from mitmproxy import models
+from mitmproxy import connections
+from mitmproxy import controller  # noqa
+from mitmproxy import http
+from mitmproxy import log
+from mitmproxy import platform
+from mitmproxy.proxy import config
 from mitmproxy.proxy import modes
 from mitmproxy.proxy import root_context
-from netlib import tcp
-from netlib.http import http1
+from mitmproxy.net import tcp
+from mitmproxy.net.http import http1
+from mitmproxy.utils import human
 
 
 class DummyServer:
     bound = False
 
-    def __init__(self, config):
+    def __init__(self, config=None):
         self.config = config
+        self.address = "dummy"
 
     def set_channel(self, channel):
         pass
@@ -35,22 +36,24 @@ class ProxyServer(tcp.TCPServer):
     allow_reuse_address = True
     bound = True
 
-    def __init__(self, config):
+    def __init__(self, config: config.ProxyConfig) -> None:
         """
             Raises ServerException if there's a startup problem.
         """
         self.config = config
         try:
-            super(ProxyServer, self).__init__(
+            super().__init__(
                 (config.options.listen_host, config.options.listen_port)
             )
-        except socket.error as e:
-            six.reraise(
-                exceptions.ServerException,
-                exceptions.ServerException('Error starting proxy server: ' + repr(e)),
-                sys.exc_info()[2]
-            )
-        self.channel = None
+            if config.options.mode == "transparent":
+                platform.init_transparent_mode()
+        except Exception as e:
+            if self.socket:
+                self.socket.close()
+            raise exceptions.ServerException(
+                'Error starting proxy server: ' + repr(e)
+            ) from e
+        self.channel: controller.Channel = None
 
     def set_channel(self, channel):
         self.channel = channel
@@ -65,12 +68,11 @@ class ProxyServer(tcp.TCPServer):
         h.handle()
 
 
-class ConnectionHandler(object):
+class ConnectionHandler:
 
     def __init__(self, client_conn, client_address, config, channel):
-        self.config = config
-        """@type: mitmproxy.proxy.config.ProxyConfig"""
-        self.client_conn = models.ClientConnection(
+        self.config: config.ProxyConfig = config
+        self.client_conn = connections.ClientConnection(
             client_conn,
             client_address,
             None)
@@ -86,14 +88,14 @@ class ConnectionHandler(object):
         )
 
         mode = self.config.options.mode
-        if mode == "upstream":
+        if mode.startswith("upstream:"):
             return modes.HttpUpstreamProxy(
                 root_ctx,
                 self.config.upstream_server.address
             )
         elif mode == "transparent":
             return modes.TransparentProxy(root_ctx)
-        elif mode == "reverse":
+        elif mode.startswith("reverse:"):
             server_tls = self.config.upstream_server.scheme == "https"
             return modes.ReverseProxy(
                 root_ctx,
@@ -112,15 +114,14 @@ class ConnectionHandler(object):
     def handle(self):
         self.log("clientconnect", "info")
 
-        root_layer = self._create_root_layer()
-
+        root_layer = None
         try:
+            root_layer = self._create_root_layer()
             root_layer = self.channel.ask("clientconnect", root_layer)
             root_layer()
         except exceptions.Kill:
             self.log("Connection killed", "info")
         except exceptions.ProtocolException as e:
-
             if isinstance(e, exceptions.ClientHandshakeException):
                 self.log(
                     "Client Handshake failed. "
@@ -130,18 +131,18 @@ class ConnectionHandler(object):
                 self.log(repr(e), "debug")
             elif isinstance(e, exceptions.InvalidServerCertificate):
                 self.log(str(e), "warn")
-                self.log("Invalid certificate, closing connection. Pass --insecure to disable validation.", "warn")
+                self.log("Invalid certificate, closing connection. Pass --ssl-insecure to disable validation.", "warn")
             else:
-                self.log(repr(e), "warn")
+                self.log(str(e), "warn")
 
-                self.log(traceback.format_exc(), "debug")
+                self.log(repr(e), "debug")
             # If an error propagates to the topmost level,
             # we send an HTTP error response, which is both
             # understandable by HTTP clients and humans.
             try:
-                error_response = models.make_error_response(502, repr(e))
+                error_response = http.make_error_response(502, repr(e))
                 self.client_conn.send(http1.assemble_response(error_response))
-            except netlib.exceptions.TcpException:
+            except exceptions.TcpException:
                 pass
         except Exception:
             self.log(traceback.format_exc(), "error")
@@ -150,9 +151,10 @@ class ConnectionHandler(object):
             print("Please lodge a bug report at: https://github.com/mitmproxy/mitmproxy", file=sys.stderr)
 
         self.log("clientdisconnect", "info")
-        self.channel.tell("clientdisconnect", root_layer)
+        if root_layer is not None:
+            self.channel.tell("clientdisconnect", root_layer)
         self.client_conn.finish()
 
     def log(self, msg, level):
-        msg = "{}: {}".format(repr(self.client_conn.address), msg)
-        self.channel.tell("log", root_context.Log(msg, level))
+        msg = "{}: {}".format(human.format_address(self.client_conn.address), msg)
+        self.channel.tell("log", log.LogEntry(msg, level))

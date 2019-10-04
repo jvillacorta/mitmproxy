@@ -1,30 +1,28 @@
-from __future__ import (absolute_import, print_function, division)
-
 import itertools
 import time
 
 import hyperframe.frame
 from hpack.hpack import Encoder, Decoder
 
-from netlib import utils, strutils
-from netlib.http import http2
-import netlib.http.headers
-import netlib.http.response
-import netlib.http.request
+from mitmproxy.net.http import http2
+import mitmproxy.net.http.headers
+import mitmproxy.net.http.response
+import mitmproxy.net.http.request
+from mitmproxy.coretypes import bidi
 
 from .. import language
 
 
-class TCPHandler(object):
+class TCPHandler:
 
     def __init__(self, rfile, wfile=None):
         self.rfile = rfile
         self.wfile = wfile
 
 
-class HTTP2StateProtocol(object):
+class HTTP2StateProtocol:
 
-    ERROR_CODES = utils.BiDi(
+    ERROR_CODES = bidi.BiDi(
         NO_ERROR=0x0,
         PROTOCOL_ERROR=0x1,
         INTERNAL_ERROR=0x2,
@@ -102,7 +100,7 @@ class HTTP2StateProtocol(object):
 
         first_line_format, method, scheme, host, port, path = http2.parse_headers(headers)
 
-        request = netlib.http.request.Request(
+        request = mitmproxy.net.http.request.Request(
             first_line_format,
             method,
             scheme,
@@ -150,7 +148,7 @@ class HTTP2StateProtocol(object):
         else:
             timestamp_end = None
 
-        response = netlib.http.response.Response(
+        response = mitmproxy.net.http.response.Response(
             b"HTTP/2.0",
             int(headers.get(':status', 502)),
             b'',
@@ -164,19 +162,19 @@ class HTTP2StateProtocol(object):
         return response
 
     def assemble(self, message):
-        if isinstance(message, netlib.http.request.Request):
+        if isinstance(message, mitmproxy.net.http.request.Request):
             return self.assemble_request(message)
-        elif isinstance(message, netlib.http.response.Response):
+        elif isinstance(message, mitmproxy.net.http.response.Response):
             return self.assemble_response(message)
         else:
             raise ValueError("HTTP message not supported.")
 
     def assemble_request(self, request):
-        assert isinstance(request, netlib.http.request.Request)
+        assert isinstance(request, mitmproxy.net.http.request.Request)
 
-        authority = self.tcp_handler.sni if self.tcp_handler.sni else self.tcp_handler.address.host
-        if self.tcp_handler.address.port != 443:
-            authority += ":%d" % self.tcp_handler.address.port
+        authority = self.tcp_handler.sni if self.tcp_handler.sni else self.tcp_handler.address[0]
+        if self.tcp_handler.address[1] != 443:
+            authority += ":%d" % self.tcp_handler.address[1]
 
         headers = request.headers.copy()
 
@@ -192,16 +190,16 @@ class HTTP2StateProtocol(object):
             stream_id = self._next_stream_id()
 
         return list(itertools.chain(
-            self._create_headers(headers, stream_id, end_stream=(request.body is None or len(request.body) == 0)),
-            self._create_body(request.body, stream_id)))
+            self._create_headers(headers, stream_id, end_stream=(request.content is None or len(request.content) == 0)),
+            self._create_body(request.content, stream_id)))
 
     def assemble_response(self, response):
-        assert isinstance(response, netlib.http.response.Response)
+        assert isinstance(response, mitmproxy.net.http.response.Response)
 
         headers = response.headers.copy()
 
         if ':status' not in headers:
-            headers.insert(0, b':status', strutils.always_bytes(response.status_code))
+            headers.insert(0, b':status', str(response.status_code).encode())
 
         if hasattr(response, 'stream_id'):
             stream_id = response.stream_id
@@ -209,8 +207,8 @@ class HTTP2StateProtocol(object):
             stream_id = self._next_stream_id()
 
         return list(itertools.chain(
-            self._create_headers(headers, stream_id, end_stream=(response.body is None or len(response.body) == 0)),
-            self._create_body(response.body, stream_id),
+            self._create_headers(headers, stream_id, end_stream=(response.content is None or len(response.content) == 0)),
+            self._create_body(response.content, stream_id),
         ))
 
     def perform_connection_preface(self, force=False):
@@ -249,14 +247,14 @@ class HTTP2StateProtocol(object):
         raw_bytes = frm.serialize()
         self.tcp_handler.wfile.write(raw_bytes)
         self.tcp_handler.wfile.flush()
-        if not hide and self.dump_frames:  # pragma no cover
-            print(frm.human_readable(">>"))
+        if not hide and self.dump_frames:  # pragma: no cover
+            print(">> " + repr(frm))
 
     def read_frame(self, hide=False):
         while True:
-            frm = http2.framereader.http2_read_frame(self.tcp_handler.rfile)
-            if not hide and self.dump_frames:  # pragma no cover
-                print(frm.human_readable("<<"))
+            frm = http2.parse_frame(*http2.read_raw_frame(self.tcp_handler.rfile))
+            if not hide and self.dump_frames:  # pragma: no cover
+                print("<< " + repr(frm))
 
             if isinstance(frm, hyperframe.frame.PingFrame):
                 raw_bytes = hyperframe.frame.PingFrame(flags=['ACK'], payload=frm.payload).serialize()
@@ -339,9 +337,9 @@ class HTTP2StateProtocol(object):
         if end_stream:
             frms[0].flags.add('END_STREAM')
 
-        if self.dump_frames:  # pragma no cover
+        if self.dump_frames:  # pragma: no cover
             for frm in frms:
-                print(frm.human_readable(">>"))
+                print(">> ", repr(frm))
 
         return [frm.serialize() for frm in frms]
 
@@ -357,9 +355,9 @@ class HTTP2StateProtocol(object):
             data=body[i:i + chunk_size]) for i in chunks]
         frms[-1].flags.add('END_STREAM')
 
-        if self.dump_frames:  # pragma no cover
+        if self.dump_frames:  # pragma: no cover
             for frm in frms:
-                print(frm.human_readable(">>"))
+                print(">> ", repr(frm))
 
         return [frm.serialize() for frm in frms]
 
@@ -396,14 +394,14 @@ class HTTP2StateProtocol(object):
             else:
                 self._handle_unexpected_frame(frm)
 
-        headers = netlib.http.headers.Headers(
+        headers = mitmproxy.net.http.headers.Headers(
             [[k, v] for k, v in self.decoder.decode(header_blocks, raw=True)]
         )
 
         return stream_id, headers, body
 
 
-class HTTP2Protocol(object):
+class HTTP2Protocol:
 
     def __init__(self, pathod_handler):
         self.pathod_handler = pathod_handler

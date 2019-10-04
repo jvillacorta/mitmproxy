@@ -1,8 +1,8 @@
 import time
 
-from netlib import websockets
-from .. import language
-from netlib.exceptions import NetlibException
+from mitmproxy.net import websockets
+from pathod import language
+from mitmproxy import exceptions
 
 
 class WebsocketsProtocol:
@@ -16,11 +16,11 @@ class WebsocketsProtocol:
                 started = time.time()
                 try:
                     frm = websockets.Frame.from_file(self.pathod_handler.rfile)
-                except NetlibException as e:
+                except exceptions.NetlibException as e:
                     lg("Error reading websocket frame: %s" % e)
                     return None, None
                 ended = time.time()
-                lg(frm.human_readable())
+                lg(repr(frm))
             retlog = dict(
                 type="inbound",
                 protocol="websockets",
@@ -30,7 +30,7 @@ class WebsocketsProtocol:
                 ),
                 cipher=None,
             )
-            if self.pathod_handler.ssl_established:
+            if self.pathod_handler.tls_established:
                 retlog["cipher"] = self.pathod_handler.get_current_cipher()
             self.pathod_handler.addlog(retlog)
             ld = language.websockets.NESTED_LEADER
@@ -53,4 +53,3 @@ class WebsocketsProtocol:
                         )
                         lg("crafting websocket spec: %s" % frame_log["spec"])
                         self.pathod_handler.addlog(frame_log)
-        return self.handle_websocket, None

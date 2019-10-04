@@ -1,5 +1,5 @@
-import React, { Component, PropTypes } from 'react'
-import { render } from 'react-dom';
+import React from 'react'
+import PropTypes from 'prop-types'
 import Codemirror from 'react-codemirror';
 
 
@@ -14,7 +14,7 @@ export default function CodeEditor ( { content, onChange} ){
         lineNumbers: true
     };
     return (
-        <div onKeyDown={e => e.stopPropagation()}>
+        <div className="codeeditor" onKeyDown={e => e.stopPropagation()}>
             <Codemirror value={content} onChange={onChange} options={options}/>
         </div>
     )

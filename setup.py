@@ -1,8 +1,8 @@
-from setuptools import setup, find_packages
-from codecs import open
 import os
+from codecs import open
 
-from netlib import version
+import re
+from setuptools import setup, find_packages
 
 # Based on https://github.com/pypa/sampleproject/blob/master/setup.py
 # and https://python-packaging-user-guide.readthedocs.org/
@@ -12,10 +12,13 @@ here = os.path.abspath(os.path.dirname(__file__))
 with open(os.path.join(here, 'README.rst'), encoding='utf-8') as f:
     long_description = f.read()
 
+with open(os.path.join(here, "mitmproxy", "version.py")) as f:
+    VERSION = re.search(r'VERSION = "(.+?)"', f.read()).group(1)
+
 setup(
     name="mitmproxy",
-    version=version.VERSION,
-    description="An interactive, SSL-capable, man-in-the-middle HTTP proxy for penetration testers and software developers.",
+    version=VERSION,
+    description="An interactive, SSL/TLS-capable intercepting proxy for HTTP/1, HTTP/2, and WebSockets.",
     long_description=long_description,
     url="http://mitmproxy.org",
     author="Aldo Cortesi",
@@ -30,12 +33,11 @@ setup(
         "Operating System :: POSIX",
         "Operating System :: Microsoft :: Windows",
         "Programming Language :: Python",
-        "Programming Language :: Python :: 2",
-        "Programming Language :: Python :: 2.7",
         "Programming Language :: Python :: 3",
-        "Programming Language :: Python :: 3.5",
+        "Programming Language :: Python :: 3 :: Only",
+        "Programming Language :: Python :: 3.6",
+        "Programming Language :: Python :: 3.7",
         "Programming Language :: Python :: Implementation :: CPython",
-        "Programming Language :: Python :: Implementation :: PyPy",
         "Topic :: Security",
         "Topic :: Internet",
         "Topic :: Internet :: WWW/HTTP",
@@ -45,14 +47,13 @@ setup(
     packages=find_packages(include=[
         "mitmproxy", "mitmproxy.*",
         "pathod", "pathod.*",
-        "netlib", "netlib.*"
     ]),
     include_package_data=True,
     entry_points={
         'console_scripts': [
-            "mitmproxy = mitmproxy.main:mitmproxy",
-            "mitmdump = mitmproxy.main:mitmdump",
-            "mitmweb = mitmproxy.main:mitmweb",
+            "mitmproxy = mitmproxy.tools.main:mitmproxy",
+            "mitmdump = mitmproxy.tools.main:mitmdump",
+            "mitmweb = mitmproxy.tools.main:mitmweb",
             "pathod = pathod.pathod_cmdline:go_pathod",
             "pathoc = pathod.pathoc_cmdline:go_pathoc"
         ]
@@ -60,67 +61,50 @@ setup(
     # https://packaging.python.org/en/latest/requirements/#install-requires
     # It is not considered best practice to use install_requires to pin dependencies to specific versions.
     install_requires=[
-        "backports.ssl_match_hostname>=3.5.0.1, <3.6",
         "blinker>=1.4, <1.5",
-        "click>=6.2, <7.0",
-        "certifi>=2015.11.20.1",  # no semver here - this should always be on the last release!
-        "configargparse>=0.10, <0.11",
-        "construct>=2.5.2, <2.6",
-        "cryptography>=1.3, <1.5",
-        "cssutils>=1.0.1, <1.1",
-        "Flask>=0.10.1, <0.12",
-        "h2>=2.4.0, <3",
-        "html2text>=2016.1.8, <=2016.5.29",
-        "hyperframe>=4.0.1, <5",
-        "jsbeautifier>=1.6.3, <1.7",
-        "lxml>=3.5.0, <=3.6.0",  # no wheels for 3.6.1 yet.
-        "Pillow>=3.2, <3.4",
-        "passlib>=1.6.5, <1.7",
-        "pyasn1>=0.1.9, <0.2",
-        "pyOpenSSL>=16.0, <17.0",
-        "pyparsing>=2.1.3, <2.2",
-        "pyperclip>=1.5.22, <1.6",
-        "requests>=2.9.1, <2.11",
-        "six>=1.10, <1.11",
-        "tornado>=4.3, <4.5",
-        "urwid>=1.3.1, <1.4",
-        "watchdog>=0.8.3, <0.9",
-        "brotlipy>=0.3.0, <0.4",
+        "Brotli>=1.0,<1.1",
+        "certifi>=2019.9.11",  # no semver here - this should always be on the last release!
+        "click>=6.2, <7",
+        "cryptography>=2.1.4,<2.5",
+        "h2>=3.0.1,<4",
+        "hyperframe>=5.1.0,<6",
+        "kaitaistruct>=0.7,<0.9",
+        "ldap3>=2.6.1,<2.7",
+        "passlib>=1.6.5, <1.8",
+        "protobuf>=3.6.0, <3.10",
+        "pyasn1>=0.3.1,<0.5",
+        "pyOpenSSL>=19.0.0,<20",
+        "pyparsing>=2.4.2,<2.5",
+        "pyperclip>=1.6.0,<1.8",
+        "ruamel.yaml>=0.16,<0.17",
+        "sortedcontainers>=2.1.0,<2.2",
+        "tornado>=4.3,<5.2",
+        "urwid>=2.0.1,<2.1",
+        "wsproto>=0.14.0,<0.15.0",
+        "publicsuffix2>=2.20190812,<3",
+        "zstandard>=0.11.0,<0.13.0",
     ],
     extras_require={
         ':sys_platform == "win32"': [
-            "pydivert>=0.0.7, <0.1",
-        ],
-        ':sys_platform != "win32"': [
-        ],
-        # Do not use a range operator here: https://bitbucket.org/pypa/setuptools/issues/380
-        # Ubuntu Trusty and other still ship with setuptools < 17.1
-        ':python_version == "2.7"': [
-            "enum34>=1.0.4, <2",
-            "ipaddress>=1.0.15, <1.1",
-            "typing==3.5.2.2",
+            "pydivert>=2.0.3,<2.2",
         ],
         'dev': [
-            "tox>=2.3, <3",
-            "mock>=2.0, <2.1",
-            "pytest>=2.8.7, <3",
-            "pytest-cov>=2.2.1, <3",
-            "pytest-timeout>=1.0.0, <2",
-            "pytest-xdist>=1.14, <2",
-            "sphinx>=1.3.5, <1.5",
-            "sphinx-autobuild>=0.5.2, <0.7",
-            "sphinxcontrib-documentedlist>=0.4.0, <0.5",
-            "sphinx_rtd_theme>=0.1.9, <0.2",
-        ],
-        'contentviews': [
-            # TODO: Find Python 3 replacements
-            # "protobuf>=2.6.1, <2.7",
-            # "pyamf>=0.8.0, <0.9",
+            "asynctest>=0.12.0",
+            "flake8>=3.7.8,<3.8",
+            "Flask>=1.0,<1.2",
+            "mypy>=0.590,<0.591",
+            "parver>=0.1,<2.0",
+            "pytest-asyncio>=0.10.0,<0.11",
+            "pytest-cov>=2.7.1,<3",
+            "pytest-timeout>=1.3.3,<2",
+            "pytest-xdist>=1.29,<2",
+            "pytest>=5.1.3,<6",
+            "requests>=2.9.1,<3",
+            "tox>=3.5,<3.15",
+            "rstcheck>=2.2,<4.0",
         ],
         'examples': [
-            "beautifulsoup4>=4.4.1, <4.6",
-            "harparser>=0.2, <0.3",
-            "pytz>=2015.07.0, <=2016.6.1",
+            "beautifulsoup4>=4.4.1,<4.7"
         ]
     }
 )

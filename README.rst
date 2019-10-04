@@ -3,13 +3,14 @@ mitmproxy
 
 |travis| |appveyor| |coverage| |latest_release| |python_versions|
 
-This repository contains the **mitmproxy** and **pathod** projects, as well as
-their shared networking library, **netlib**.
+This repository contains the **mitmproxy** and **pathod** projects.
 
-``mitmproxy`` is an interactive, SSL-capable intercepting proxy with a console
-interface.
+``mitmproxy`` is an interactive, SSL/TLS-capable intercepting proxy with a console
+interface for HTTP/1, HTTP/2, and WebSockets.
 
 ``mitmdump`` is the command-line version of mitmproxy. Think tcpdump for HTTP.
+
+``mitmweb`` is a web-based interface for mitmproxy.
 
 ``pathoc`` and ``pathod`` are perverse HTTP client and server applications
 designed to let you craft almost any conceivable HTTP request, including ones
@@ -23,12 +24,11 @@ Documentation & Help
 General information, tutorials, and precompiled binaries can be found on the mitmproxy
 and pathod websites.
 
-|mitmproxy_site| |pathod_site|
+|mitmproxy_site|
 
+The documentation for mitmproxy is available on our website:
 
-The latest documentation for mitmproxy is also available on ReadTheDocs.
-
-|mitmproxy_docs|
+|mitmproxy_docs_stable| |mitmproxy_docs_master|
 
 
 Join our discussion forum on Discourse to ask questions, help
@@ -37,7 +37,7 @@ each other solve problems, and come up with new ideas for the project.
 |mitmproxy_discourse|
 
 
-Join our developer chat on Slack if you would like to hack on mitmproxy itself.
+Join our developer chat on Slack if you would like to contribute to mitmproxy itself.
 
 |slack|
 
@@ -45,99 +45,92 @@ Join our developer chat on Slack if you would like to hack on mitmproxy itself.
 Installation
 ------------
 
-The installation instructions are `here <http://docs.mitmproxy.org/en/stable/install.html>`_.
+The installation instructions are `here <https://docs.mitmproxy.org/stable/overview-installation>`__.
 If you want to contribute changes, keep on reading.
 
+Contributing
+------------
 
-Hacking
--------
+As an open source project, mitmproxy welcomes contributions of all forms. If you would like to bring the project forward,
+please consider contributing in the following areas:
 
-To get started hacking on mitmproxy, make sure you have Python_ 3.5.x or above with
-virtualenv_ installed (you can find installation instructions for virtualenv
-`here <http://virtualenv.readthedocs.org/en/latest/>`_). Then do the following:
+- **Maintenance:** We are *incredibly* thankful for individuals who are stepping up and helping with maintenance. This includes (but is not limited to) triaging issues, reviewing pull requests and picking up stale ones, helping out other users in our forums_, creating minimal, complete and verifiable examples or test cases for existing bug reports, updating documentation, or fixing minor bugs that have recently been reported.
+- **Code Contributions:** We actively mark issues that we consider are `good first contributions`_. If you intend to work on a larger contribution to the project, please come talk to us first.
 
-.. code-block:: text
+Development Setup
+-----------------
+
+To get started hacking on mitmproxy, please follow the `advanced installation`_ steps to install mitmproxy from source, but stop right before running ``pip3 install mitmproxy``. Instead, do the following:
+
+.. code-block:: bash
 
     git clone https://github.com/mitmproxy/mitmproxy.git
     cd mitmproxy
-    ./dev.sh  # powershell .\dev.ps1 on Windows
+    ./dev.sh  # "powershell .\dev.ps1" on Windows
 
 
-The *dev* script will create a virtualenv environment in a directory called
-"venv", and install all mandatory and optional dependencies into it. The
-primary mitmproxy components - mitmproxy, netlib and pathod - are installed as
+The *dev* script will create a `virtualenv`_ environment in a directory called "venv"
+and install all mandatory and optional dependencies into it. The primary
+mitmproxy components - mitmproxy and pathod - are installed as
 "editable", so any changes to the source in the repository will be reflected
 live in the virtualenv.
 
-To confirm that you're up and running, activate the virtualenv, and run the
-mitmproxy test suite:
-
-.. code-block:: text
-
-    . venv/bin/activate  # venv\Scripts\activate on Windows
-    py.test
-
-Note that the main executables for the project - ``mitmdump``, ``mitmproxy``,
+The main executables for the project - ``mitmdump``, ``mitmproxy``,
 ``mitmweb``, ``pathod``, and ``pathoc`` - are all created within the
 virtualenv. After activating the virtualenv, they will be on your $PATH, and
 you can run them like any other command:
 
-.. code-block:: text
+.. code-block:: bash
 
+    . venv/bin/activate  # "venv\Scripts\activate" on Windows
     mitmdump --version
-
-For convenience, the project includes an autoenv_ file (`.env`_) that
-auto-activates the virtualenv when you cd into the mitmproxy directory.
-
 
 Testing
 -------
 
 If you've followed the procedure above, you already have all the development
-requirements installed, and you can simply run the test suite:
+requirements installed, and you can run the full test suite (including tests for code style and documentation) with tox_:
 
-.. code-block:: text
+.. code-block:: bash
 
-    py.test
+    tox
+
+To run complete tests with a full coverage report, you can use the following command:
+
+.. code-block:: bash
+
+    tox -- --verbose --cov-report=term
+
+For speedier testing, we recommend you run `pytest`_ directly on individual test files or folders:
+
+.. code-block:: bash
+
+    cd test/mitmproxy/addons
+    pytest --cov mitmproxy.addons.anticache --cov-report term-missing --looponfail test_anticache.py
+
+As pytest does not check the code style, you probably want to run ``tox -e lint`` before committing your changes.
 
 Please ensure that all patches are accompanied by matching changes in the test
-suite. The project tries to maintain 100% test coverage.
-
-You can also use `tox` to run a full suite of tests in Python 2.7 and 3.5,
-including a quick test to check documentation and code linting.
-
-The following tox environments are relevant for local testing:
-
-.. code-block:: text
-
-    tox -e py27  # runs all tests with Python 2.7
-    tox -e py35  # runs all tests with Python 3.5
-    tox -e docs  # runs a does-it-compile check on the documentation
-    tox -e lint  # runs the linter for coding style checks
-
-We support Python 2.7 and 3.5, so please make sure all tests pass in both
-environments. Running `tox` ensures all necessary tests are executed.
-
+suite. The project tries to maintain 100% test coverage and enforces this strictly for some parts of the codebase.
 
 Documentation
 -------------
 
-The mitmproxy documentation is build using Sphinx_, which is installed
-automatically if you set up a development environment as described above. After
-installation, you can render the documentation like this:
+The following tools are required to build the mitmproxy docs:
 
-.. code-block:: text
+- Hugo_
+- modd_
+- yarn_
+
+.. code-block:: bash
 
     cd docs
-    make clean
-    make html
-    make livehtml
+    yarn
+    modd
 
-The last command invokes `sphinx-autobuild`_, which watches the Sphinx directory and rebuilds
-the documentation when a change is detected.
 
-Style
------
+Code Style
+----------
 
 Keeping to a consistent code style throughout the project makes it easier to
 contribute and collaborate. Please stick to the guidelines in
@@ -145,24 +138,25 @@ contribute and collaborate. Please stick to the guidelines in
 good reason not to.
 
 This is automatically enforced on every PR. If we detect a linting error, the
-PR checks will fail and block merging. We are using this command to check for style compliance:
+PR checks will fail and block merging. You can run our lint checks yourself
+with the following command:
 
-.. code-block:: text
+.. code-block:: bash
 
-    flake8 --jobs 8 --count mitmproxy netlib pathod examples test
+    tox -e lint
 
 
 .. |mitmproxy_site| image:: https://shields.mitmproxy.org/api/https%3A%2F%2F-mitmproxy.org-blue.svg
     :target: https://mitmproxy.org/
     :alt: mitmproxy.org
 
-.. |pathod_site| image:: https://shields.mitmproxy.org/api/https%3A%2F%2F-pathod.net-blue.svg
-    :target: https://pathod.net/
-    :alt: pathod.net
+.. |mitmproxy_docs_stable| image:: https://shields.mitmproxy.org/api/docs-stable-brightgreen.svg
+    :target: https://docs.mitmproxy.org/stable/
+    :alt: mitmproxy documentation stable
 
-.. |mitmproxy_docs| image:: https://readthedocs.org/projects/mitmproxy/badge/
-    :target: http://docs.mitmproxy.org/en/latest/
-    :alt: mitmproxy documentation
+.. |mitmproxy_docs_master| image:: https://shields.mitmproxy.org/api/docs-master-brightgreen.svg
+    :target: https://docs.mitmproxy.org/master/
+    :alt: mitmproxy documentation master
 
 .. |mitmproxy_discourse| image:: https://shields.mitmproxy.org/api/https%3A%2F%2F-discourse.mitmproxy.org-orange.svg
     :target: https://discourse.mitmproxy.org
@@ -172,15 +166,15 @@ PR checks will fail and block merging. We are using this command to check for st
     :target: http://slack.mitmproxy.org/
     :alt: Slack Developer Chat
 
-.. |travis| image:: https://shields.mitmproxy.org/travis/mitmproxy/mitmproxy/master.svg?label=Travis%20build
+.. |travis| image:: https://shields.mitmproxy.org/travis/mitmproxy/mitmproxy/master.svg?label=travis%20ci
     :target: https://travis-ci.org/mitmproxy/mitmproxy
     :alt: Travis Build Status
 
-.. |appveyor| image:: https://shields.mitmproxy.org/appveyor/ci/mhils/mitmproxy/master.svg?label=Appveyor%20build
-    :target: https://ci.appveyor.com/project/mhils/mitmproxy
+.. |appveyor| image:: https://shields.mitmproxy.org/appveyor/ci/mitmproxy/mitmproxy/master.svg?label=appveyor%20ci
+    :target: https://ci.appveyor.com/project/mitmproxy/mitmproxy
     :alt: Appveyor Build Status
 
-.. |coverage| image:: https://codecov.io/gh/mitmproxy/mitmproxy/branch/master/graph/badge.svg
+.. |coverage| image:: https://shields.mitmproxy.org/codecov/c/github/mitmproxy/mitmproxy/master.svg?label=codecov
     :target: https://codecov.io/gh/mitmproxy/mitmproxy
     :alt: Coverage Status
 
@@ -192,12 +186,14 @@ PR checks will fail and block merging. We are using this command to check for st
     :target: https://pypi.python.org/pypi/mitmproxy
     :alt: Supported Python versions
 
-.. _Python: https://www.python.org/
-.. _virtualenv: http://virtualenv.readthedocs.org/en/latest/
-.. _autoenv: https://github.com/kennethreitz/autoenv
-.. _.env: https://github.com/mitmproxy/mitmproxy/blob/master/.env
-.. _Sphinx: http://sphinx-doc.org/
-.. _sphinx-autobuild: https://pypi.python.org/pypi/sphinx-autobuild
-.. _issue_tracker: https://github.com/mitmproxy/mitmproxy/issues
+.. _`advanced installation`: https://docs.mitmproxy.org/stable/overview-installation/#advanced-installation
+.. _virtualenv: https://virtualenv.pypa.io/
+.. _`pytest`: http://pytest.org/
+.. _tox: https://tox.readthedocs.io/
+.. _Hugo: https://gohugo.io/
+.. _modd: https://github.com/cortesi/modd
+.. _yarn: https://yarnpkg.com/en/
 .. _PEP8: https://www.python.org/dev/peps/pep-0008
-.. _Google Style Guide: https://google.github.io/styleguide/pyguide.html
+.. _`Google Style Guide`: https://google.github.io/styleguide/pyguide.html
+.. _forums: https://discourse.mitmproxy.org/
+.. _`good first contributions`: https://github.com/mitmproxy/mitmproxy/issues?q=is%3Aissue+is%3Aopen+label%3A%22help+wanted%22

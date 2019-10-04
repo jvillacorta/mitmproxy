@@ -1,23 +1,25 @@
 import os
 import sys
-import netlib.utils
+from mitmproxy.utils import data as mdata
+import typing  # noqa
 
 
-class MemBool(object):
+class MemBool:
 
     """
         Truth-checking with a memory, for use in chained if statements.
     """
 
-    def __init__(self):
-        self.v = None
+    def __init__(self) -> None:
+        self.v: typing.Optional[bool] = None
 
-    def __call__(self, v):
+    def __call__(self, v: bool) -> bool:
         self.v = v
         return bool(v)
 
 
-data = netlib.utils.Data(__name__)
+# FIXME: change this name
+data = mdata.Data(__name__)
 
 
 def daemonize(stdin='/dev/null', stdout='/dev/null', stderr='/dev/null'):  # pragma: no cover

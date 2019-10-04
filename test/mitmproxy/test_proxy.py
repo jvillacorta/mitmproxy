@@ -1,71 +1,38 @@
-import os
-import mock
-from OpenSSL import SSL
+import argparse
+import platform
+from unittest import mock
+import pytest
 
-from mitmproxy import cmdline
+from mitmproxy.tools import cmdline
+from mitmproxy.tools import main
 from mitmproxy import options
 from mitmproxy.proxy import ProxyConfig
-from mitmproxy.models.connections import ServerConnection
 from mitmproxy.proxy.server import DummyServer, ProxyServer, ConnectionHandler
 from mitmproxy.proxy import config
-from netlib.exceptions import TcpDisconnect
-from pathod import test
-from netlib.http import http1
-from . import tutils
+
+from ..conftest import skip_windows
 
 
-class TestServerConnection(object):
+class MockParser(argparse.ArgumentParser):
 
-    def test_simple(self):
-        self.d = test.Daemon()
-        sc = ServerConnection((self.d.IFACE, self.d.port))
-        sc.connect()
-        f = tutils.tflow()
-        f.server_conn = sc
-        f.request.path = "/p/200:da"
+    """
+    argparse.ArgumentParser sys.exits() by default.
+    Make it more testable by throwing an exception instead.
+    """
 
-        # use this protocol just to assemble - not for actual sending
-        sc.wfile.write(http1.assemble_request(f.request))
-        sc.wfile.flush()
-
-        assert http1.read_response(sc.rfile, f.request, 1000)
-        assert self.d.last_log()
-
-        sc.finish()
-        self.d.shutdown()
-
-    def test_terminate_error(self):
-        self.d = test.Daemon()
-        sc = ServerConnection((self.d.IFACE, self.d.port))
-        sc.connect()
-        sc.connection = mock.Mock()
-        sc.connection.recv = mock.Mock(return_value=False)
-        sc.connection.flush = mock.Mock(side_effect=TcpDisconnect)
-        sc.finish()
-        self.d.shutdown()
-
-    def test_repr(self):
-        sc = tutils.tserver_conn()
-        assert "address:22" in repr(sc)
-        assert "ssl" not in repr(sc)
-        sc.ssl_established = True
-        assert "ssl" in repr(sc)
-        sc.sni = "foo"
-        assert "foo" in repr(sc)
+    def error(self, message):
+        raise Exception(message)
 
 
 class TestProcessProxyOptions:
 
     def p(self, *args):
-        parser = tutils.MockParser()
-        cmdline.common_options(parser)
+        parser = MockParser()
+        opts = options.Options()
+        cmdline.common_options(parser, opts)
         args = parser.parse_args(args=args)
-        opts = cmdline.get_common_options(args)
-        pconf = config.ProxyConfig(options.Options(**opts))
+        pconf = main.process_options(parser, opts, args)
         return parser, pconf
-
-    def assert_err(self, err, *args):
-        tutils.raises(err, self.p, *args)
 
     def assert_noerr(self, *args):
         m, p = self.p(*args)
@@ -75,107 +42,30 @@ class TestProcessProxyOptions:
     def test_simple(self):
         assert self.p()
 
-    def test_cadir(self):
-        with tutils.tmpdir() as cadir:
-            self.assert_noerr("--cadir", cadir)
-
-    @mock.patch("mitmproxy.platform.resolver", None)
-    def test_no_transparent(self):
-        self.assert_err("transparent mode not supported", "-T")
-
-    @mock.patch("mitmproxy.platform.resolver")
-    def test_modes(self, _):
-        # self.assert_noerr("-R", "http://localhost")
-        # self.assert_err("expected one argument", "-R")
-        # self.assert_err("Invalid server specification", "-R", "reverse")
-        #
-        # self.assert_noerr("-T")
-        #
-        # self.assert_noerr("-U", "http://localhost")
-        # self.assert_err("expected one argument", "-U")
-        # self.assert_err("Invalid server specification", "-U", "upstream")
-        #
-        # self.assert_noerr("--upstream-auth", "test:test")
-        # self.assert_err("expected one argument", "--upstream-auth")
-        self.assert_err(
-            "Invalid upstream auth specification", "--upstream-auth", "test"
-        )
-        # self.assert_err("mutually exclusive", "-R", "http://localhost", "-T")
-
-    def test_socks_auth(self):
-        self.assert_err(
-            "Proxy Authentication not supported in SOCKS mode.",
-            "--socks",
-            "--nonanonymous"
-        )
-
-    def test_client_certs(self):
-        with tutils.tmpdir() as cadir:
-            self.assert_noerr("--client-certs", cadir)
-            self.assert_noerr(
-                "--client-certs",
-                os.path.join(tutils.test_data.path("data/clientcert"), "client.pem"))
-            self.assert_err(
-                "path does not exist",
-                "--client-certs",
-                "nonexistent")
-
-    def test_certs(self):
+    def test_certs(self, tdata):
         self.assert_noerr(
             "--cert",
-            tutils.test_data.path("data/testkey.pem"))
-        self.assert_err("does not exist", "--cert", "nonexistent")
-
-    def test_auth(self):
-        p = self.assert_noerr("--nonanonymous")
-        assert p.authenticator
-
-        p = self.assert_noerr(
-            "--htpasswd",
-            tutils.test_data.path("data/htpasswd"))
-        assert p.authenticator
-        self.assert_err(
-            "malformed htpasswd file",
-            "--htpasswd",
-            tutils.test_data.path("data/htpasswd.invalid"))
-
-        p = self.assert_noerr("--singleuser", "test:test")
-        assert p.authenticator
-        self.assert_err(
-            "invalid single-user specification",
-            "--singleuser",
-            "test")
-
-    def test_insecure(self):
-        p = self.assert_noerr("--insecure")
-        assert p.openssl_verification_mode_server == SSL.VERIFY_NONE
-
-    def test_upstream_trusted_cadir(self):
-        expected_dir = "/path/to/a/ca/dir"
-        p = self.assert_noerr("--upstream-trusted-cadir", expected_dir)
-        assert p.options.ssl_verify_upstream_trusted_cadir == expected_dir
-
-    def test_upstream_trusted_ca(self):
-        expected_file = "/path/to/a/cert/file"
-        p = self.assert_noerr("--upstream-trusted-ca", expected_file)
-        assert p.options.ssl_verify_upstream_trusted_ca == expected_file
+            tdata.path("mitmproxy/data/testkey.pem"))
+        with pytest.raises(Exception, match="does not exist"):
+            self.p("--cert", "nonexistent")
 
 
 class TestProxyServer:
-    # binding to 0.0.0.0:1 works without special permissions on Windows
 
-    @tutils.skip_windows
+    @skip_windows
+    @pytest.mark.skipif(platform.mac_ver()[0].split('.')[:2] == ['10', '14'],
+                        reason='Skipping due to macOS Mojave')
     def test_err(self):
-        conf = ProxyConfig(
-            options.Options(listen_port=1),
-        )
-        tutils.raises("error starting proxy server", ProxyServer, conf)
+        # binding to 0.0.0.0:1 works without special permissions on Windows and
+        # macOS Mojave
+        conf = ProxyConfig(options.Options(listen_port=1))
+        with pytest.raises(Exception, match="Error starting proxy server"):
+            ProxyServer(conf)
 
     def test_err_2(self):
-        conf = ProxyConfig(
-            options.Options(listen_host="invalidhost"),
-        )
-        tutils.raises("error starting proxy server", ProxyServer, conf)
+        conf = ProxyConfig(options.Options(listen_host="256.256.256.256"))
+        with pytest.raises(Exception, match="Error starting proxy server"):
+            ProxyServer(conf)
 
 
 class TestDummyServer:
@@ -188,21 +78,23 @@ class TestDummyServer:
 
 class TestConnectionHandler:
 
-    def test_fatal_error(self):
-        config = mock.Mock()
-        root_layer = mock.Mock()
-        root_layer.side_effect = RuntimeError
-        config.options.mode.return_value = root_layer
+    def test_fatal_error(self, capsys):
+        opts = options.Options()
+        pconf = config.ProxyConfig(opts)
+
         channel = mock.Mock()
 
         def ask(_, x):
-            return x
+            raise RuntimeError
+
         channel.ask = ask
         c = ConnectionHandler(
             mock.MagicMock(),
             ("127.0.0.1", 8080),
-            config,
+            pconf,
             channel
         )
-        with tutils.capture_stderr(c.handle) as output:
-            assert "mitmproxy has crashed" in output
+        c.handle()
+
+        _, err = capsys.readouterr()
+        assert "mitmproxy has crashed" in err

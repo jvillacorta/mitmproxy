@@ -1,8 +1,6 @@
-import mock
+from unittest import mock
 
 from pathod import pathod_cmdline as cmdline
-
-from . import tutils
 
 
 def test_parse_anchor_spec():
@@ -11,14 +9,14 @@ def test_parse_anchor_spec():
 
 
 @mock.patch("argparse.ArgumentParser.error")
-def test_pathod(perror):
+def test_pathod(perror, tdata):
     assert cmdline.args_pathod(["pathod"])
 
     a = cmdline.args_pathod(
         [
             "pathod",
             "--cert",
-            tutils.test_data.path("data/testkey.pem")
+            tdata.path("pathod/data/testkey.pem")
         ]
     )
     assert a.ssl_certs
@@ -46,7 +44,7 @@ def test_pathod(perror):
         [
             "pathod",
             "-a",
-            "foo=" + tutils.test_data.path("data/response")
+            "foo=" + tdata.path("pathod/data/response")
         ]
     )
     assert a.anchors

@@ -54,6 +54,15 @@ IconColumn.getIcon = flow => {
 }
 
 export function PathColumn({ flow }) {
+
+    let err;
+    if(flow.error){
+        if (flow.error.msg === "Connection killed"){
+            err = <i className="fa fa-fw fa-times pull-right"></i>
+        } else {
+            err = <i className="fa fa-fw fa-exclamation pull-right"></i>
+        }
+    }
     return (
         <td className="col-path">
             {flow.request.is_replay && (
@@ -62,6 +71,7 @@ export function PathColumn({ flow }) {
             {flow.intercepted && (
                 <i className="fa fa-fw fa-pause pull-right"></i>
             )}
+            {err}
             {RequestUtils.pretty_url(flow.request)}
         </td>
     )
@@ -80,8 +90,26 @@ MethodColumn.headerClass = 'col-method'
 MethodColumn.headerName = 'Method'
 
 export function StatusColumn({ flow }) {
+    let color = 'darkred';
+
+    if (flow.response !== null && 100 <= flow.response.status_code && flow.response.status_code < 200) {
+        color = 'green'
+    }
+    else if (flow.response !== null && 200 <= flow.response.status_code && flow.response.status_code < 300) {
+        color = 'darkgreen'
+    }
+    else if (flow.response !== null && 300 <= flow.response.status_code && flow.response.status_code < 400) {
+        color = 'lightblue'
+    }
+    else if (flow.response !== null && 400 <= flow.response.status_code && flow.response.status_code < 500) {
+        color = 'lightred'
+    }
+    else if (flow.response !== null && 500 <= flow.response.status_code && flow.response.status_code < 600) {
+        color = 'lightred'
+    }
+
     return (
-        <td className="col-status">{flow.response && flow.response.status_code}</td>
+        <td className="col-status" style={{color: color}}>{flow.response && flow.response.status_code}</td>
     )
 }
 

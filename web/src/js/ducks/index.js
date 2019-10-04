@@ -1,18 +1,16 @@
-import { combineReducers } from 'redux'
-import eventLog from './eventLog'
-import websocket from './websocket'
-import flows from './flows'
-import flowView from './flowView'
-import settings from './settings'
-import ui from './ui/index'
-import msgQueue from './msgQueue'
+import { combineReducers } from "redux"
+import eventLog from "./eventLog"
+import flows from "./flows"
+import settings from "./settings"
+import ui from "./ui/index"
+import connection from "./connection"
+import options from './options'
 
 export default combineReducers({
     eventLog,
-    websocket,
     flows,
-    flowView,
     settings,
+    connection,
     ui,
-    msgQueue,
+    options,
 })

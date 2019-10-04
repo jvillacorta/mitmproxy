@@ -1,13 +1,13 @@
-
 import abc
 
 import pyparsing as pp
 
-import netlib.websockets
-from netlib.http import status_codes, user_agents
+from mitmproxy.net.http import url
+import mitmproxy.net.websockets
+from mitmproxy.net.http import status_codes, user_agents
 from . import base, exceptions, actions, message
 
-# TODO: use netlib.semantics.protocol assemble method,
+# TODO: use mitmproxy.net.semantics.protocol assemble method,
 # instead of duplicating the HTTP on-the-wire representation here.
 # see http2 language for an example
 
@@ -53,8 +53,10 @@ class Method(base.OptionsOrValue):
     ]
 
 
-class _HeaderMixin(object):
-    unique_name = None
+class _HeaderMixin:
+    @property
+    def unique_name(self):
+        return None
 
     def format_header(self, key, value):
         return [key, b": ", value, b"\r\n"]
@@ -143,7 +145,7 @@ class _HTTPMessage(message.Message):
 
 
 class Response(_HTTPMessage):
-    unique_name = None
+    unique_name = None  # type: ignore
     comps = (
         Header,
         ShortcutContentType,
@@ -198,7 +200,7 @@ class Response(_HTTPMessage):
                     1,
                     StatusCode(101)
                 )
-            headers = netlib.websockets.WebsocketsProtocol.server_handshake_headers(
+            headers = mitmproxy.net.websockets.server_handshake_headers(
                 settings.websocket_key
             )
             for i in headers.fields:
@@ -251,7 +253,7 @@ class Response(_HTTPMessage):
         return ":".join([i.spec() for i in self.tokens])
 
 
-class NestedResponse(base.NestedMessage):
+class NestedResponse(message.NestedMessage):
     preamble = "s"
     nest_type = Response
 
@@ -310,7 +312,7 @@ class Request(_HTTPMessage):
                     1,
                     Method("get")
                 )
-            for i in netlib.websockets.WebsocketsProtocol.client_handshake_headers().fields:
+            for i in mitmproxy.net.websockets.client_handshake_headers().fields:
                 if not get_header(i[0], self.headers):
                     tokens.append(
                         Header(
@@ -319,7 +321,7 @@ class Request(_HTTPMessage):
                         )
                     )
         if not self.raw:
-            if not get_header("Content-Length", self.headers):
+            if not get_header(b"Content-Length", self.headers):
                 if self.body:
                     length = sum(
                         len(i) for i in self.body.values(settings)
@@ -331,11 +333,21 @@ class Request(_HTTPMessage):
                         )
                     )
             if settings.request_host:
-                if not get_header("Host", self.headers):
+                if not get_header(b"Host", self.headers):
+                    h = settings.request_host
+                    if self.path:
+                        path = b"".join(self.path.values({})).decode(
+                            "ascii", errors="ignore"
+                        )
+                        try:
+                            _, h, _, _ = url.parse(path)
+                            h = h.decode("ascii", errors="ignore")
+                        except ValueError:
+                            pass
                     tokens.append(
                         Header(
                             base.TokValueLiteral("Host"),
-                            base.TokValueLiteral(settings.request_host)
+                            base.TokValueLiteral(h)
                         )
                     )
         intermediate = self.__class__(tokens)

@@ -43,27 +43,23 @@ export var MessageUtils = {
         }
         return false;
     },
-    getContentURL: function (flow, message) {
+    getContentURL: function (flow, message, view) {
         if (message === flow.request) {
             message = "request";
         } else if (message === flow.response) {
             message = "response";
         }
-        return "/flows/" + flow.id + "/" + message + "/content";
-    },
+        return `./flows/${flow.id}/${message}/` + (view ? `content/${view}.json` : 'content.data');
+    }
 };
 
 export var RequestUtils = _.extend(MessageUtils, {
-    pretty_host: function (request) {
-        //FIXME: Add hostheader
-        return request.host;
-    },
     pretty_url: function (request) {
         var port = "";
         if (defaultPorts[request.scheme] !== request.port) {
             port = ":" + request.port;
         }
-        return request.scheme + "://" + this.pretty_host(request) + port + request.path;
+        return request.scheme + "://" + request.pretty_host + port + request.path;
     }
 });
 

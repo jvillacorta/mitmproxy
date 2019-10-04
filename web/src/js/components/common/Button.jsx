@@ -1,18 +1,22 @@
-import React, { PropTypes } from 'react'
+import React from "react"
+import PropTypes from 'prop-types'
+import classnames from "classnames"
 
 Button.propTypes = {
     onClick: PropTypes.func.isRequired,
-    text: PropTypes.string,
-    icon: PropTypes.string
+    children: PropTypes.node.isRequired,
+    icon: PropTypes.string,
+    title: PropTypes.string,
 }
 
-export default function Button({ onClick, text, icon, disabled }) {
+export default function Button({ onClick, children, icon, disabled, className, title }) {
     return (
-        <div className={"btn btn-default"}
-             onClick={onClick}
-             disabled={disabled}>
+        <div className={classnames(className, 'btn btn-default')}
+             onClick={disabled ? undefined : onClick}
+             disabled={disabled}
+             title={title}>
             {icon && (<i className={"fa fa-fw " + icon}/> )}
-            {text && text}
+            {children}
         </div>
     )
 }

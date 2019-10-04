@@ -1,15 +1,17 @@
-import React, { Component, PropTypes } from 'react'
+import React, { Component } from 'react'
+import PropTypes from 'prop-types'
 import { connect } from 'react-redux'
 import classnames from 'classnames'
 import MainMenu from './Header/MainMenu'
-import ViewMenu from './Header/ViewMenu'
 import OptionMenu from './Header/OptionMenu'
 import FileMenu from './Header/FileMenu'
 import FlowMenu from './Header/FlowMenu'
 import {setActiveMenu} from '../ducks/ui/header'
+import ConnectionIndicator from "./Header/ConnectionIndicator"
+import HideInStatic from './common/HideInStatic'
 
 class Header extends Component {
-    static entries = [MainMenu, ViewMenu, OptionMenu]
+    static entries = [MainMenu, OptionMenu]
 
     handleClick(active, e) {
         e.preventDefault()
@@ -23,7 +25,9 @@ class Header extends Component {
         if(selectedFlowId)
             entries.push(FlowMenu)
 
-        const Active = _.find(entries, (e) => e.title == activeMenu)
+        // Make sure to have a fallback in case FlowMenu is selected but we don't have any flows
+        // (e.g. because they are all deleted or not yet received)
+        const Active = _.find(entries, (e) => e.title == activeMenu) || MainMenu
 
         return (
             <header>
@@ -37,8 +41,11 @@ class Header extends Component {
                             {Entry.title}
                         </a>
                     ))}
+                    <HideInStatic>
+                        <ConnectionIndicator/>
+                    </HideInStatic>
                 </nav>
-                <div className="menu">
+                <div>
                     <Active/>
                 </div>
             </header>

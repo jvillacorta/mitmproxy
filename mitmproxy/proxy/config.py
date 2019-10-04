@@ -1,185 +1,93 @@
-from __future__ import absolute_import, print_function, division
-
-import base64
-import collections
 import os
 import re
-from netlib import strutils
+import typing
 
-import six
-from OpenSSL import SSL, crypto
+from OpenSSL import crypto
 
 from mitmproxy import exceptions
-from netlib import certutils
-from netlib import tcp
-from netlib.http import authentication
-from netlib.http import url
+from mitmproxy import options as moptions
+from mitmproxy import certs
+from mitmproxy.net import server_spec
 
 CONF_BASENAME = "mitmproxy"
 
 
-class HostMatcher(object):
+class HostMatcher:
 
-    def __init__(self, patterns=tuple()):
+    def __init__(self, handle, patterns=tuple()):
+        self.handle = handle
         self.patterns = list(patterns)
         self.regexes = [re.compile(p, re.IGNORECASE) for p in self.patterns]
 
     def __call__(self, address):
         if not address:
             return False
-        address = tcp.Address.wrap(address)
-        host = "%s:%s" % (address.host, address.port)
-        if any(rex.search(host) for rex in self.regexes):
-            return True
-        else:
-            return False
+        host = "%s:%s" % address
+        if self.handle in ["ignore", "tcp"]:
+            return any(rex.search(host) for rex in self.regexes)
+        else:  # self.handle == "allow"
+            return any(not rex.search(host) for rex in self.regexes)
 
     def __bool__(self):
         return bool(self.patterns)
 
-    if six.PY2:
-        __nonzero__ = __bool__
-
-
-ServerSpec = collections.namedtuple("ServerSpec", "scheme address")
-
-
-def parse_server_spec(spec):
-    try:
-        p = url.parse(spec)
-        if p[0] not in (b"http", b"https"):
-            raise ValueError()
-    except ValueError:
-        raise exceptions.OptionsError(
-            "Invalid server specification: %s" % spec
-        )
-    host, port = p[1:3]
-    address = tcp.Address((host.decode("ascii"), port))
-    scheme = p[0].decode("ascii").lower()
-    return ServerSpec(scheme, address)
-
-
-def parse_upstream_auth(auth):
-    pattern = re.compile(".+:")
-    if pattern.search(auth) is None:
-        raise exceptions.OptionsError(
-            "Invalid upstream auth specification: %s" % auth
-        )
-    return b"Basic" + b" " + base64.b64encode(strutils.always_bytes(auth))
-
 
 class ProxyConfig:
 
-    def __init__(self, options):
+    def __init__(self, options: moptions.Options) -> None:
         self.options = options
 
-        self.authenticator = None
-        self.check_ignore = None
-        self.check_tcp = None
-        self.certstore = None
-        self.clientcerts = None
-        self.openssl_verification_mode_server = None
+        self.check_filter: HostMatcher = None
+        self.check_tcp: HostMatcher = None
+        self.certstore: certs.CertStore = None
+        self.upstream_server: typing.Optional[server_spec.ServerSpec] = None
         self.configure(options, set(options.keys()))
         options.changed.connect(self.configure)
 
-    def configure(self, options, updated):
-        # type: (mitmproxy.options.Options, Any) -> None
-        if options.add_upstream_certs_to_client_chain and not options.ssl_insecure:
-            raise exceptions.OptionsError(
-                "The verify-upstream-cert requires certificate verification to be disabled. "
-                "If upstream certificates are verified then extra upstream certificates are "
-                "not available for inclusion to the client chain."
-            )
+    def configure(self, options: moptions.Options, updated: typing.Any) -> None:
+        if options.allow_hosts and options.ignore_hosts:
+            raise exceptions.OptionsError("--ignore-hosts and --allow-hosts are mutually "
+                                          "exclusive; please choose one.")
 
-        if options.ssl_insecure:
-            self.openssl_verification_mode_server = SSL.VERIFY_NONE
+        if options.ignore_hosts:
+            self.check_filter = HostMatcher("ignore", options.ignore_hosts)
+        elif options.allow_hosts:
+            self.check_filter = HostMatcher("allow", options.allow_hosts)
         else:
-            self.openssl_verification_mode_server = SSL.VERIFY_PEER
+            self.check_filter = HostMatcher(False)
+        if "tcp_hosts" in updated:
+            self.check_tcp = HostMatcher("tcp", options.tcp_hosts)
 
-        self.check_ignore = HostMatcher(options.ignore_hosts)
-        self.check_tcp = HostMatcher(options.tcp_hosts)
-
-        self.openssl_method_client, self.openssl_options_client = \
-            tcp.sslversion_choices[options.ssl_version_client]
-        self.openssl_method_server, self.openssl_options_server = \
-            tcp.sslversion_choices[options.ssl_version_server]
-
-        certstore_path = os.path.expanduser(options.cadir)
+        certstore_path = os.path.expanduser(options.confdir)
         if not os.path.exists(os.path.dirname(certstore_path)):
             raise exceptions.OptionsError(
                 "Certificate Authority parent directory does not exist: %s" %
-                os.path.dirname(options.cadir)
+                os.path.dirname(certstore_path)
             )
-        self.certstore = certutils.CertStore.from_store(
+        key_size = options.key_size
+        self.certstore = certs.CertStore.from_store(
             certstore_path,
-            CONF_BASENAME
+            CONF_BASENAME,
+            key_size
         )
 
-        if options.clientcerts:
-            clientcerts = os.path.expanduser(options.clientcerts)
-            if not os.path.exists(clientcerts):
-                raise exceptions.OptionsError(
-                    "Client certificate path does not exist: %s" %
-                    options.clientcerts
-                )
-            self.clientcerts = clientcerts
+        for c in options.certs:
+            parts = c.split("=", 1)
+            if len(parts) == 1:
+                parts = ["*", parts[0]]
 
-        for spec, cert in options.certs:
-            cert = os.path.expanduser(cert)
+            cert = os.path.expanduser(parts[1])
             if not os.path.exists(cert):
                 raise exceptions.OptionsError(
                     "Certificate file does not exist: %s" % cert
                 )
             try:
-                self.certstore.add_cert_file(spec, cert)
+                self.certstore.add_cert_file(parts[0], cert)
             except crypto.Error:
                 raise exceptions.OptionsError(
                     "Invalid certificate format: %s" % cert
                 )
-
-        self.upstream_server = None
-        self.upstream_auth = None
-        if options.upstream_server:
-            self.upstream_server = parse_server_spec(options.upstream_server)
-        if options.upstream_auth:
-            self.upstream_auth = parse_upstream_auth(options.upstream_auth)
-
-        self.authenticator = authentication.NullProxyAuth(None)
-        needsauth = any(
-            [
-                options.auth_nonanonymous,
-                options.auth_singleuser,
-                options.auth_htpasswd
-            ]
-        )
-        if needsauth:
-            if options.mode == "transparent":
-                raise exceptions.OptionsError(
-                    "Proxy Authentication not supported in transparent mode."
-                )
-            elif options.mode == "socks5":
-                raise exceptions.OptionsError(
-                    "Proxy Authentication not supported in SOCKS mode. "
-                    "https://github.com/mitmproxy/mitmproxy/issues/738"
-                )
-            elif options.auth_singleuser:
-                parts = options.auth_singleuser.split(':')
-                if len(parts) != 2:
-                    raise exceptions.OptionsError(
-                        "Invalid single-user specification. "
-                        "Please use the format username:password"
-                    )
-                password_manager = authentication.PassManSingleUser(*parts)
-            elif options.auth_nonanonymous:
-                password_manager = authentication.PassManNonAnon()
-            elif options.auth_htpasswd:
-                try:
-                    password_manager = authentication.PassManHtpasswd(
-                        options.auth_htpasswd
-                    )
-                except ValueError as v:
-                    raise exceptions.OptionsError(str(v))
-            self.authenticator = authentication.BasicProxyAuth(
-                password_manager,
-                "mitmproxy"
-            )
+        m = options.mode
+        if m.startswith("upstream:") or m.startswith("reverse:"):
+            _, spec = server_spec.parse_with_mode(options.mode)
+            self.upstream_server = spec
